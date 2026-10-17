@@ -183,8 +183,86 @@ README 的退出码语义、跟踪文件里没有本机路径、工作树干净�
 > 本栏在 tag 打出、产物构建完成之后填写。tag 树里的本文件到"## 二"这一行为止，
 > 因此 `DOC_UNCHANGED` 门会（正确地）报一条 WARN 而不是 PASS。
 
-（待填：tag 提交 sha 与它的 CI 两条运行、两个产物的 sha256 与复验命令、
-Release 入口、`check_release.py` 的最终输出。）
+### 2.1 tag 指向哪一次提交、那次提交有哪些 CI
+
+| 项 | 值 |
+|---|---|
+| tag 对象 | `8ddf3ec7c09780f6aa1e99b5cbd3ae4f7838d7e4`（`git cat-file -t` → `tag`，annotated） |
+| tag 目标提交 | `5958987fa1263e90739707eaffede4ea5958c7ab` |
+| branch push 的运行 | [39040282695](https://github.com/yuluo554/10-17-doc-dedupe/actions/runs/39040282695) `event=push branch=main` **success**，4/4 作业 |
+| tag push 的运行 | [39040585083](https://github.com/yuluo554/10-17-doc-dedupe/actions/runs/39040585083) `event=push branch=v0.1.0` **success**，4/4 作业 |
+
+两条运行打在**同一个提交**上，这正是 DoD 要的"tag push 与 branch push 各一条"：
+`gh run list --commit 5958987` 只返回两条，`gh run view` 显示 `headSha` 相同。
+第二次（tag push）的四个作业同样是 481 点 / 0 非点。
+
+### 2.2 产物与 digest
+
+产物由 tag 树构建（构建前 `git status` 干净且 `HEAD == v0.1.0^{commit}`），
+本地副本在 `release/`（`.gitignore` 里，不入仓），同一份挂在 Release 上：
+
+```yaml
+sha256: 092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
+sha256: 80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
+```
+
+复验（把上面两行原样喂给 `sha256sum -c` 即可；Windows 用 `Get-FileHash`）：
+
+```bash
+sha256sum -c <<'SUMS'
+092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
+80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
+SUMS
+```
+
+Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
+两个附件（`doc_dedupe-0.1.0-py3-none-any.whl` 106,227 B、`doc_dedupe-0.1.0.tar.gz` 191,615 B），
+不是 draft、不是 prerelease。`tools/check_release.py` 会用 `gh release download` 把附件真的拉下来
+再算一次 sha256，与上表比对——"挂在 Release 上"不是靠肉眼看的。
+
+### 2.3 安装面实测（M5 收尾时这一项还是"未实跑"）
+
+| 装法 | 结果 |
+|---|---|
+| 全新 venv 装 **wheel** | 装得上；`doc-dedupe --version` → `0.1.0`；`selftest` → `selftest OK` |
+| 从 wheel 跑全流程（用仓库语料作输入） | `scan` 0 / `report` 1（27 个簇，exact+near+template 三档齐全）/ `reports` 0 |
+| 干净 clone + `pip install -e ".[dev]"` | 见 §1.4 的退出码表 |
+| 干净 clone + `pip install -e ".[web]"` 后 `serve` | `GET /` 200、`GET /api/clusters` 200（27 个簇） |
+
+### 2.4 发布门禁的最终输出
+
+`python tools/check_release.py .`（联网，含 gh 校验）：
+
+```
+== release gate: 10-17-doc-dedupe (tag=v0.1.0) ==
+[PASS] TAG_ANNOTATED        tag v0.1.0 is annotated
+[WARN] TAG_COMMIT           no commit recorded in the facts block; the tag target is 5958987fa126
+[PASS] TAGGER_EMAIL         tagger email is noreply
+[PASS] DOC_IN_TAG           plan/RELEASE-M6.md is inside the v0.1.0 tree
+[WARN] DOC_UNCHANGED        the release document changed after the tag; the post-tag additions
+                            must be a separate, clearly marked section
+[PASS] ARTIFACT_DIGEST      2 artifact digest(s) recorded after the tag
+[PASS] ARTIFACT_LOCAL       release/doc_dedupe-0.1.0.tar.gz matches the recorded sha256
+[PASS] ARTIFACT_LOCAL       release/doc_dedupe-0.1.0-py3-none-any.whl matches the recorded sha256
+[PASS] ARTIFACT_REMOTE      downloaded doc_dedupe-0.1.0.tar.gz from yuluo554/10-17-doc-dedupe; sha256 matches
+[PASS] ARTIFACT_REMOTE      downloaded doc_dedupe-0.1.0-py3-none-any.whl from yuluo554/10-17-doc-dedupe; sha256 matches
+[PASS] RELEASE_ASSETS       2 asset(s): doc_dedupe-0.1.0-py3-none-any.whl, doc_dedupe-0.1.0.tar.gz
+[PASS] CI_GREEN             2 successful run(s) on 5958987fa126, covering main, v0.1.0
+[PASS] PLAN00               all 3 M6 status row(s) are flipped
+[PASS] README_LICENSE       LICENSE exists and the README names it
+[PASS] README_EXIT_CODES    report/quarantine/undo/reports each document exit code 1 on their command line
+[PASS] LEAKS                no machine-specific path or QQ mailbox in 117 scanned file(s)
+[PASS] IDENTITIES           1 unique commit identity/identities, all noreply
+[PASS] CLEAN_TREE           the working tree is clean
+[PASS] REMOTE               remote configured: origin
+[PASS] REMOTE_TAG           the remote tag matches the local one (5958987fa126)
+
+0 FAIL / 2 WARN / 18 PASS
+```
+
+两条 WARN 都是设计如此，不是待办：`TAG_COMMIT` 因为没有把提交哈希写进 tag 树里的
+facts 块（写进去会改变那棵树），`DOC_UNCHANGED` 因为本节就是 tag 后的追加。
+"0 FAIL"是硬要求，"0 WARN"不是。
 
 ## 三、诚实口径
 
