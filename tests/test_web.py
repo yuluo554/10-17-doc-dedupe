@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -30,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from docdedupe import cli, diffing, report, scanner, store
+from docdedupe import cli, diffing, quarantine, report, scanner, store
 from docdedupe.web import server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -489,8 +490,81 @@ def test_a_scanned_but_unreported_index_explains_itself_without_writing(scanned_
 
 
 # ---------------------------------------------------------------------------
-# Isolation is not implemented yet, and says so
+# Isolation goes through the execution layer of module 5
 # ---------------------------------------------------------------------------
+#
+# These tests need a corpus that may actually be moved, so they scan a copy of
+# two duplicates in ``tmp_path``. The module-scoped ``reported`` fixture above
+# reads ``data/samples``, which is frozen: quarantining a sample would mutate the
+# corpus and break the sample-freeze gate.
+
+
+@pytest.fixture
+def movable(tmp_path_factory):
+    """A tmp corpus, scanned and reported, whose files may safely be moved.
+
+    Function-scoped on purpose: each test starts from an untouched tree, so
+    "nothing else moved" assertions cannot be confused by a previous test's
+    quarantine directory.
+    """
+    root = tmp_path_factory.mktemp("m5-web") / "docs"
+    (root / "A").mkdir(parents=True)
+    (root / "B").mkdir(parents=True)
+    body = "示例项目甲 正文。\n" + "本段用于构成足够长的正文内容。" * 12 + "\n"
+    (root / "A" / "方案.txt").write_text(body, encoding="utf-8")
+    (root / "B" / "方案.txt").write_text(body, encoding="utf-8")
+    (root / "无关.md").write_text("完全不同的另一份文档。" * 20, encoding="utf-8")
+
+    db_path = tmp_path_factory.mktemp("m5-web-db") / "index.db"
+    conn = store.connect(str(db_path))
+    try:
+        scanner.scan(conn, [str(root)], scanned_at="2026-10-17T00:00:00Z", clock=lambda: 0.0)
+        conn.commit()
+    finally:
+        conn.close()
+    code, out, err = run_cli(["report", "--db", str(db_path), "--format", "json"])
+    assert code == 1, err
+    return db_path, root, json.loads(out)
+
+
+@pytest.fixture
+def movable_client(movable):
+    pytest.importorskip("fastapi", reason="the review page needs the 'web' extra")
+    from fastapi.testclient import TestClient
+
+    return TestClient(server.create_app(str(movable[0])))
+
+
+def _documents(root: Path):
+    """The corpus files only: the quarantine record is not part of the corpus.
+
+    A batch directory survives an undo on purpose — the manifest is the record of
+    what was moved where, and this tool has no deletion path at all. So "the
+    corpus is unchanged" is asserted on everything *outside*
+    ``.dedupe-quarantine``, and the batch directory gets its own assertion.
+    """
+    return sorted(
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if quarantine.QUARANTINE_DIR_NAME not in path.relative_to(root).parts
+    )
+
+
+def _cluster_action_body(clusters_payload):
+    """``(POST body, cluster)`` moving every member but the recommended keep."""
+    cluster = clusters_payload["clusters"][0]
+    kept = [member for member in cluster["members"] if member["kept"]]
+    keep = (kept[0] if kept else cluster["members"][0])
+    return {
+        "cluster_id": cluster["cluster_id"],
+        "keep": keep["path_abs"],
+        "move": [
+            member["path_abs"]
+            for member in cluster["members"]
+            if member["doc_id"] != keep["doc_id"]
+        ],
+        "confirm": True,
+    }, cluster
 
 
 def test_the_quarantine_endpoint_requires_confirmation(client, api_clusters):
@@ -500,41 +574,159 @@ def test_the_quarantine_endpoint_requires_confirmation(client, api_clusters):
     assert client.post("/api/quarantine", json=body).status_code == 400
     assert client.post("/api/undo", json={"batch_id": "b1", "confirm": False}).status_code == 400
     assert client.post("/api/quarantine", json={"confirm": "yes"}).status_code == 400
-
-
-def test_the_quarantine_endpoint_reports_the_module_boundary_and_moves_nothing(
-    client, api_clusters
-):
-    """M4 shows the review; moving files is M5's execution layer.
-
-    The endpoint exists so the page has an honest place to send a decision, and it
-    answers "not implemented" rather than pretending. The file tree is compared
-    before and after to make "it moved nothing" a measurement, not a claim.
-    """
-    cluster = api_clusters["clusters"][0]
-    before = sorted(path.relative_to(SAMPLES).as_posix() for path in SAMPLES.rglob("*"))
-
-    response = client.post(
-        "/api/quarantine",
-        json={
-            "cluster_id": cluster["cluster_id"],
-            "keep": cluster["members"][0]["path_abs"],
-            "move": [member["path_abs"] for member in cluster["members"][1:]],
-            "confirm": True,
-        },
-    )
-
-    assert response.status_code == 501
-    body = response.json()
-    assert body["status"] == "not_implemented"
-    assert body["ok"] is False
-    assert "M5" in body["message"]
-
-    after = sorted(path.relative_to(SAMPLES).as_posix() for path in SAMPLES.rglob("*"))
-    assert after == before
+    # The refusal happens before the execution layer, so the frozen corpus the
+    # ``reported`` fixture reads is untouched by these three requests.
     assert not (SAMPLES / ".dedupe-quarantine").exists()
 
 
-def test_the_page_tells_the_user_the_action_is_not_available_yet(api_clusters):
-    assert api_clusters["quarantine_available"] is False
-    assert "M5" in api_clusters["quarantine_message"]
+def test_the_quarantine_endpoint_moves_the_listed_members_and_undo_puts_them_back(
+    movable, movable_client
+):
+    """The page's action is the command's action: move, record, restore."""
+    db_path, root, _ = movable
+    clusters = movable_client.get("/api/clusters").json()
+    body, cluster = _cluster_action_body(clusters)
+    before = _documents(root)
+
+    response = movable_client.post("/api/quarantine", json=body)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["action"] == "quarantine"
+    assert payload["cluster_id"] == cluster["cluster_id"]
+    assert [item["status"] for item in payload["items"]] == ["moved"]
+
+    # The file is really in the quarantine, byte for byte, and no longer where it
+    # was; the diff endpoint still reads it from the index.
+    moved = payload["items"][0]
+    assert not os.path.exists(moved["original_path"])
+    assert os.path.isfile(moved["quarantine_path"])
+    assert quarantine.file_sha256(moved["quarantine_path"]) == moved["sha256"]
+
+    # The batch is visible on the page, so the user can undo it from there.
+    after_payload = movable_client.get("/api/clusters").json()
+    assert [batch["batch_id"] for batch in after_payload["batches"]] == [payload["batch_id"]]
+    assert after_payload["batches"][0]["moved"] == 1
+
+    undo = movable_client.post(
+        "/api/undo", json={"batch_id": payload["batch_id"], "confirm": True}
+    )
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["counts"]["restored"] == 1
+    assert os.path.isfile(moved["original_path"])
+    assert quarantine.file_sha256(moved["original_path"]) == moved["sha256"]
+    assert _documents(root) == before
+    # The batch directory stays behind as the record of the action (nothing in
+    # this tool deletes); the page reads its status from the manifest.
+    assert (root / quarantine.QUARANTINE_DIR_NAME / payload["batch_id"]).is_dir()
+    final = movable_client.get("/api/clusters").json()["batches"][0]
+    assert (final["moved"], final["restored"], final["pending"]) == (0, 1, 0)
+
+
+def test_the_quarantine_endpoint_refuses_a_path_that_is_not_a_member(movable, movable_client):
+    """A POST is not a licence to move anything on the disk."""
+    clusters = movable_client.get("/api/clusters").json()
+    body, _ = _cluster_action_body(clusters)
+    conn = store.connect_readonly(str(movable[0]))
+    try:
+        unrelated = [
+            str(row["path_abs"])
+            for row in store.cluster_document_rows(conn)
+            if "无关" in str(row["path_abs"])
+        ]
+    finally:
+        conn.close()
+    assert unrelated, "the unrelated file should be indexed"
+    before = _documents(movable[1])
+
+    response = movable_client.post("/api/quarantine", json=dict(body, move=unrelated))
+
+    assert response.status_code == 400
+    assert "not a member" in response.json()["detail"]
+    assert _documents(movable[1]) == before
+
+
+def test_the_quarantine_response_is_the_execution_layers_own_payload(
+    movable, movable_client, monkeypatch
+):
+    """The HTTP layer must not grow a second account of one action.
+
+    The route is checked against a ``BatchResult`` produced by the same function
+    the CLI calls: if the server assembled its own body (or moved files itself),
+    the two would drift the moment either side changed.
+    """
+    db_path, root, _ = movable
+    clusters = movable_client.get("/api/clusters").json()
+    body, cluster = _cluster_action_body(clusters)
+    before = _documents(root)
+
+    recorded = {}
+
+    def fake_execute(db, **kwargs):
+        recorded["db"] = db
+        recorded["kwargs"] = kwargs
+        return quarantine.BatchResult(
+            action="quarantine",
+            batch_id="20261017T101500Z-7f3a",
+            cluster_id=kwargs["cluster_id"],
+            keep=kwargs["keep"],
+            manifest_path=str(root / ".dedupe-quarantine" / "x" / "manifest.json"),
+            quarantine_dir=str(root / ".dedupe-quarantine" / "x"),
+            items=(
+                {
+                    "status": quarantine.STATUS_MOVED,
+                    "original_path": "a",
+                    "quarantine_path": "b",
+                    "sha256": "c",
+                    "size": 1,
+                    "moved_at": "2026-10-17T10:15:01Z",
+                },
+            ),
+        )
+
+    monkeypatch.setattr(server.quarantine_mod, "execute_quarantine", fake_execute)
+    response = movable_client.post("/api/quarantine", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["batch_id"] == "20261017T101500Z-7f3a"
+    assert response.json()["counts"] == {
+        "items": 1,
+        "moved": 1,
+        "restored": 0,
+        "pending": 0,
+    }
+    assert recorded["db"] == str(db_path)
+    assert recorded["kwargs"]["confirm"] is True
+    assert recorded["kwargs"]["cluster_id"] == cluster["cluster_id"]
+    # Nothing moved: the stub replaced the execution layer entirely, so the tree
+    # after the request is exactly the tree before it.
+    assert _documents(root) == before
+
+
+def test_the_undo_endpoint_reports_an_unknown_batch_as_404(movable_client):
+    response = movable_client.post("/api/undo", json={"batch_id": "nope", "confirm": True})
+    assert response.status_code == 404
+    assert "nope" in response.json()["detail"]
+
+
+def test_the_undo_endpoint_requires_a_batch_id(movable_client):
+    response = movable_client.post("/api/undo", json={"confirm": True})
+    assert response.status_code == 400
+    assert "batch_id" in response.json()["detail"]
+
+
+def test_the_page_offers_the_action_and_describes_it_truthfully(movable_client):
+    """M4 said "not available yet"; M5 connects it, and the wording has to follow."""
+    payload = movable_client.get("/api/clusters").json()
+    assert payload["quarantine_available"] is True
+    assert "复原" in payload["quarantine_message"]
+    assert ".dedupe-quarantine" in payload["quarantine_message"]
+
+    html = movable_client.get("/").text
+    # The page asks the server to act through the documented routes and passes
+    # the confirmation through; it holds no logic of its own about what may move.
+    assert 'fetchJson("/api/quarantine"' in html
+    assert 'fetchJson("/api/undo"' in html
+    assert "confirm: true" in html
+    assert "复原" in html

@@ -21,7 +21,7 @@ from docdedupe.cli import (
     EXIT_NOT_READY,
     EXIT_OK,
     EXIT_USAGE,
-    STAGE_NOT_READY,
+    HANDLERS,
     build_parser,
     main,
 )
@@ -105,41 +105,54 @@ def test_unknown_flag_exits_usage():
     assert "unrecognized arguments" in err
 
 
-@pytest.mark.parametrize("command", sorted(STAGE_NOT_READY))
-def test_staged_commands_exit_three_with_milestone_hint(command):
-    """A not-yet-implemented command must not pretend to succeed."""
-    argv = [command]
-    if command == "quarantine":
-        argv += ["--cluster", "c1", "--keep", "a", "--move", "b", "--confirm"]
-    elif command == "undo":
-        argv += ["--batch", "b1", "--confirm"]
+def test_every_declared_command_has_a_handler():
+    """M5 retired the last staged command; the staging table is gone.
 
-    code, out, err = run(argv)
-    assert code == EXIT_NOT_READY
-    assert STAGE_NOT_READY[command] in err
-    assert "not implemented" in err
-    # A staged command must never claim success nor emit a result payload.
-    assert out == ""
-
-
-def test_scan_is_retired_from_the_staging_table():
-    """M1 landed scan; leaving it staged would make the command look unimplemented."""
-    assert "scan" not in STAGE_NOT_READY
-
-
-def test_report_is_retired_from_the_staging_table():
-    """M3 landed report; a staged entry would send users to a M3 hint forever."""
-    assert "report" not in STAGE_NOT_READY
-
-
-def test_serve_is_retired_from_the_staging_table():
-    """M4 landed serve; leaving it staged would make the whole review page look missing."""
-    assert "serve" not in STAGE_NOT_READY
-
-
-def test_staged_commands_all_declared_in_parser():
+    The old ``STAGE_NOT_READY`` table existed so an unimplemented command could
+    answer exit 3 instead of pretending to work. With every command implemented,
+    the equivalent guarantee is that the parser and the dispatch table describe
+    the same set of commands: a command added to the interface without a handler
+    fails ``selftest`` instead of reaching the "no handler" branch in production.
+    """
     known = set(cli._command_names(build_parser()))
-    assert set(STAGE_NOT_READY) <= known
+    assert known == set(HANDLERS)
+    assert "quarantine" in known and "undo" in known and "reports" in known
+
+
+def test_no_command_is_still_staged():
+    """Regression guard for the constant's removal."""
+    assert not hasattr(cli, "STAGE_NOT_READY")
+    assert not hasattr(cli, "_not_ready")
+
+
+def test_selftest_cross_check_can_fail(monkeypatch):
+    """The ``selftest`` check must really compare the two sets."""
+    monkeypatch.setitem(cli.HANDLERS, "definitely-not-a-command", cli.cmd_version)
+    code, out, err = run(["selftest"])
+    assert code != EXIT_OK
+    assert "undeclared command" in err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["quarantine"],
+        ["quarantine", "--cluster", "c1", "--keep", "a", "--move", "b"],
+        ["undo"],
+        ["undo", "--batch", "b1"],
+    ],
+)
+def test_destructive_commands_refuse_to_run_without_confirm(argv):
+    """Missing ``--confirm`` is a usage error at the parser, before any handler.
+
+    The command never reaches the execution layer, so this is the first of the
+    three places the confirmation is required (parser, execution layer, HTTP
+    body).
+    """
+    code, out, err = run(argv)
+    assert code == EXIT_USAGE
+    assert "confirm" in err
+    assert out == ""
 
 
 def test_parser_rejects_serve_on_non_loopback_host():

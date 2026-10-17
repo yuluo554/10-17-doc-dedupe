@@ -12,17 +12,17 @@
 
 ## 状态
 
-**M4 · 差异复核界面**。`serve` 起一个只监听本机的复核页面：左侧簇列表（三档标签 + 推荐保留 + 理由），
-右侧双栏差异高亮（段落级 + 字符级）与一句摘要（"仅差 3 段 / 差一个署名 / 差异仅来自版式或编码"）。
-后续里程碑按顺序推进，**未实现的命令显式退出 3 并说明计划里程碑，不返回空结果**。
+**M5 · 隔离与回滚**。复核之后可以真的动手，而且每一步都可逆：把选中的成员移进
+`.dedupe-quarantine/<batch-id>/`，**先写 manifest 再移动**；`undo` 复原时逐个校验 sha256，
+校验通过才按逆序移回，任一项不对就整批中止、不碰任何文件。代码里没有删除路径（静态断言）。
 
 | 命令 | 状态 |
 |---|---|
 | `doc-dedupe --help` / `version` / `selftest` | ✅ 可用 |
 | `scan` | ✅ 可用（M1 扫描与格式适配；M2 归一化 + 指纹 + 候选召回） |
 | `report` | ✅ 可用（M3 聚类与保留建议，md/csv/json 报告） |
-| `serve` | ✅ 可用（M4 差异复核界面；隔离按钮已就位，执行层 M5 接通） |
-| `quarantine` / `undo` | ⬜ M5（隔离与回滚） |
+| `serve` | ✅ 可用（M4 差异复核界面；隔离按钮已接通执行层） |
+| `quarantine` / `undo` / `reports` | ✅ 可用（M5 隔离、复原与隔离记录导出） |
 
 里程碑与验收标准见 [`plan/05-里程碑与发布.md`](plan/05-里程碑与发布.md)。
 
@@ -205,8 +205,9 @@ doc-dedupe serve [--db 索引库路径] [--port 8765] [--host 127.0.0.1] [--open
 - **右侧**：所选簇的双栏差异——段落级增删改 + 改动字符的高亮——以及一句摘要
   （"仅差 3 段 / 差一个署名 / 差异仅来自版式或编码 / 正文逐段一致"）；
 - **下方**：成员打分表（完整度 / 修改时间 / 路径层级 / 文件名 / 目录）与"保留哪一份"单选；
-- **隔离按钮**已就位，但**本版不会移动任何文件**：点击后接口返回 501 并说明执行层在 M5 落地
-  （宁可明确未实现，也不给一个没验证过的薄版本）。
+- **隔离按钮**与左侧的**隔离批次列表**：点击按钮会先把要移动的文件逐个列在确认框里，确认后把
+  "除保留项之外"的成员移进 `.dedupe-quarantine/<batch-id>/`；批次列表显示每一批"已隔离 / 已复原 /
+  待处理"，并有"复原这一批"按钮（复原前同样先确认）。
 
 几条写进不变量、并有测试守着的纪律：
 
@@ -225,6 +226,77 @@ doc-dedupe serve [--db 索引库路径] [--port 8765] [--host 127.0.0.1] [--open
 - **摘要口径只有一处**：`diffing.py` 是唯一产出这四句话的模块（静态断言），页面只显示接口给的字符串。
   其中"差一页"首期**不实现**：页级相似度需要页边界，而抽取层只给一条纯文本流；缺定义就不编阈值，
   故降级为扩展项（`plan/03` §六），基准每次运行都打印这条降级。
+
+### 隔离与回滚（`quarantine` / `undo` / `reports`）
+
+```bash
+# 把某一簇里除保留项之外的成员移进隔离区（--move 逐个列举要动的文件）
+doc-dedupe quarantine --db index.db --cluster <簇 ID> \
+    --keep "D:/docs/B/方案.docx" --move "D:/docs/A/方案(1).docx" --confirm
+
+# 复原某一批（校验 sha256 后按逆序移回原路径）
+doc-dedupe undo --db index.db --batch 20261017T101500Z-7f3a --confirm
+
+# 导出隔离记录（一行一个被移动的文件）
+doc-dedupe reports --db index.db --format csv --out out/
+```
+
+隔离区就落在**这些成员共同父目录**下的 `.dedupe-quarantine/<batch-id>/`：`manifest.json` 加被移动的文件。
+manifest 是唯一的状态机（`pending → moved → restored`），命令与页面都读它，不各写一套：
+
+```json
+{
+  "schema": "doc-dedupe-quarantine/1",
+  "batch_id": "20261017T101500Z-7f3a",
+  "created_at": "2026-10-17T10:15:00Z",
+  "cluster_id": "c1a2b3c4d5e6",
+  "keep": "D:/docs/B/方案.docx",
+  "items": [
+    {
+      "status": "moved",
+      "original_path": "D:/docs/A/方案(1).docx",
+      "quarantine_path": "D:/docs/.dedupe-quarantine/20261017T101500Z-7f3a/方案(1).docx",
+      "sha256": "…",
+      "size": 12345,
+      "moved_at": "2026-10-17T10:15:01Z"
+    }
+  ]
+}
+```
+
+**纪律（每条都有测试或基准守着）**：
+
+- **先写后动**：manifest 落盘（全部 `pending`）之后才开始移动，每成功一份改写为 `moved`。
+  中途中断，manifest 仍记着"哪一份要去哪里"；`--batch-id` 重跑即续做：`pending` 项现在移，
+  已在隔离区的项补齐状态，**不重复搬动**。
+- **只隔离、不删除**：包内不存在 `os.remove`/`unlink`/`rmtree` 调用（静态 AST 断言）；
+  隔离目录即使复原后也保留，因为它是"当时动了什么"的记录。
+- **先校验后移动**：`undo` 先整批校验——每个隔离副本的 sha256 与大小必须与 manifest 一致，
+  原路径必须空着（或已是同一份内容，于是 `undo` 可以重复执行）——任何一项不对就整批中止，
+  一个文件都不动。逐项移回后再算一次 sha256，"逐字节一致"是量出来的。
+- **破坏性开关写"动哪些"**：只移动 `--move` 逐项列举的成员；空列表是用法错误（exit 2），
+  绝不当成"全部"。`--keep` 与 `--move` 的每一项都必须是该簇成员（读 `clusters` 表判定），
+  且文件必须在扫描后未被改动（大小 / mtime 与索引一致）——复核的必须是磁盘上那一份。
+- **同名不覆盖**：同一批里两个成员同文件名时，按 `path_norm` 顺序确定性改名（`方案__2.txt`），
+  永远不覆盖隔离区里已有文件。
+- **导出字段固定**：`batch_id / cluster_id / tier / keep / moved_path / original_path / sha256 / status`，
+  其中 `tier` 读 `clusters` 表，不重算。
+
+### 隔离基准（B6）
+
+```bash
+python tools/bench_quarantine.py --db <索引库> --samples data/samples --work <临时目录>
+```
+
+B6 在一份语料的副本上跑**完整的往返**：移动 → 逐字节核对（sha256 由基准自己算，不读 manifest）→
+复原 → 再逐字节核对；另外造三个场景：中断后续做（在移动缝隙注入故障）、隔离副本被改动、
+原路径被别的文件占用。基准同样可证伪：
+
+```bash
+python tools/bench_quarantine.py ... --inject skip-sha-check      # 必须 FAIL
+python tools/bench_quarantine.py ... --inject skip-pending        # 必须 FAIL
+python tools/bench_quarantine.py ... --inject overwrite-on-restore # 必须 FAIL
+```
 
 ### 差异基准（B5）
 
@@ -274,15 +346,19 @@ pip install -e ".[web]"       # fastapi + uvicorn，serve 需要（缺它时 ser
 | 码 | 含义 |
 |---|---|
 | 0 | 正常完成，且没有需要处置的结果 |
-| 1 | 正常完成，但**检出了结果**（如存在近重复簇），或基准门槛未达标 |
-| 2 | 用法错误、输入路径不存在、缺少 `--confirm`，或输入全部不可用 |
-| 3 | 依赖缺失，或该命令尚未在本次构建中实现 |
+| 1 | 正常完成，但**检出了结果**（如存在近重复簇），或基准门槛未达标，或有项没做完（隔离/复原残留待处理） |
+| 2 | 用法错误、输入路径不存在、缺少 `--confirm`、请求越界（非本簇成员 / 文件已被改动 / 原路径被占用），或输入全部不可用 |
+| 3 | 依赖缺失（缺 `web` extra、缺 PDF/DOCX 抽取依赖） |
 
 `report` 检出结果返回 1 是既定语义，不是故障——脚本化使用时按码分支即可：
 `0` 表示"没有重复"，`1` 表示"有重复，去看报告"。
 `scan` 在有文件被跳过时**仍返回 0**（跳过的文件在汇总里逐条列出并计数）；
 只有在**没有任何文件产出正文**或**一个候选文件都没找到**时才返回 2——那意味着索引没法用于后续步骤，
 返回 0 会让脚本误以为扫描成功。
+
+`quarantine` / `undo` 的 1 同样不是故障：它表示"这一批还有项没到位"（移动失败、校验不过、原路径被占用），
+原因逐条打印，manifest 记着剩下什么；`quarantine` 用同一个 `--batch-id` 重跑即可续做。
+`reports` 只要还有 `pending` 项就返回 1——那正是需要人看一眼的状态。
 
 `serve` 的退出码描述的是**起服务这件事**，不是复核结果：服务正常停止返回 0；没有可用索引
 （文件不存在 / 库里没有文档）返回 2；缺 `web` extra 返回 3 并给出安装命令。索引里还没有聚类结果
@@ -292,6 +368,9 @@ pip install -e ".[web]"       # fastapi + uvicorn，serve 需要（缺它时 ser
 doc-dedupe scan data/samples --db index.db   # 0
 doc-dedupe report --db index.db              # 1：检出簇；0：没有重复
 doc-dedupe serve  --db index.db              # 0：服务停止；2：索引不可用；3：缺 web extra
+doc-dedupe quarantine --db index.db --cluster C --keep K --move M --confirm   # 0；1：还有项没到位
+doc-dedupe undo --db index.db --batch B --confirm                             # 0；1：整批未复原
+doc-dedupe reports --db index.db --out out/                                   # 0；1：有 pending 项
 ```
 
 ## 隐私

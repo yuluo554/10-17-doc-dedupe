@@ -11,10 +11,11 @@ documented.
    to tell which one was wrong (``plan/03`` module 4 invariant).
 2. **It cannot write.** The connection is opened read-only
    (:func:`docdedupe.store.connect_readonly`), so SQLite itself rejects any
-   accidental write. The two POST routes exist so the page has an honest place to
-   send a user's decision, answer ``confirm`` validation today, and reply with an
-   explicit "not implemented yet" instead of pretending to move files: the
-   quarantine execution layer is module 5.
+   accidental write. The two POST routes hand the user's decision to the
+   execution layer of module 5 (:mod:`docdedupe.quarantine`), which opens its own
+   writable connection for its own registry; this module never moves a file
+   itself and never grows a second copy of the manifest state machine, so the
+   command line and the page cannot report two different accounts of one action.
 3. **It never reaches the network.** The page is one file with inline CSS and JS,
    and :func:`render_page` re-asserts that on every render — not once in a test —
    so a future edit that adds a CDN link fails at the point where the page is
@@ -35,7 +36,15 @@ Payload shapes
     {"schema": "doc-dedupe-review/1", "status": "ok"|"empty", "hint": str|null,
      "built_at": str|null, "counts": {"exact": n, "near": n, "template": n},
      "clusters": [{"cluster_id", "tier", "tier_label", "keep", "keep_id",
-                   "reason", "member_count", "members": [...]}]}
+                   "reason", "member_count", "members": [...]}],
+     "batches": [{"batch_id", "cluster_id", "keep", "created_at", "manifest",
+                  "items", "moved", "restored", "pending", "manifest_missing"}]}
+
+``POST /api/quarantine`` (body ``{"cluster_id", "keep", "move": [...], "confirm": true}``)
+and ``POST /api/undo`` (body ``{"batch_id", "confirm": true}``) return
+``docdedupe.quarantine.BatchResult.as_dict()`` on success — the same payload
+``doc-dedupe quarantine --format json`` prints — 400 for a refused request and
+404 for an unknown batch.
 
 ``GET /api/clusters/{id}/diff?a=&b=``::
 
@@ -58,6 +67,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import cluster as cluster_mod
 from .. import diffing
+from .. import quarantine as quarantine_mod
 from .. import store
 from ..config import DEFAULT_SETTINGS, Settings
 from ..report import TIER_LABELS
@@ -96,14 +106,15 @@ EMPTY_HINT = (
 )
 
 # Sentences the page shows verbatim. The first is the standing disclaimer
-# (``plan/06`` section 4); the second states the module boundary so the button is
-# never mistaken for a working one.
+# (``plan/06`` section 4); the second describes what the button does, in the words
+# of the execution layer's own promise: the members move into the quarantine
+# directory beside the corpus and can be put back at any time.
 DISCLAIMER = (
     "相似度是机械测量值，不构成抄袭或侵权判断；所有处置都只是建议，且永远可逆。"
 )
-QUARANTINE_NOT_IMPLEMENTED = (
-    "隔离与撤销的执行层在 M5 落地：本版页面只做复核与差异查看，"
-    "点击不会移动任何文件。"
+QUARANTINE_HINT = (
+    "隔离会把选中的成员移动到语料目录下的 .dedupe-quarantine/<batch-id>/，"
+    "不删除任何文件，随时可用 undo 复原（每次隔离都会写下 manifest，记录哪一份去了哪里）。"
 )
 
 
@@ -296,8 +307,15 @@ def clusters_view(conn, settings: Optional[Settings] = None) -> dict:
         "counts": counts,
         "clusters": clusters,
         "disclaimer": DISCLAIMER,
-        "quarantine_available": False,
-        "quarantine_message": QUARANTINE_NOT_IMPLEMENTED,
+        # The page offers the action; the execution layer decides whether a
+        # request is allowed. This flag only tells the page that the button is
+        # not a placeholder any more.
+        "quarantine_available": True,
+        "quarantine_message": QUARANTINE_HINT,
+        # Batches already registered in this index, so a reviewer can undo one
+        # without remembering its id. Counted from the manifests (see
+        # ``quarantine.batch_summaries``).
+        "batches": quarantine_mod.batch_summaries(conn),
     }
 
 
@@ -439,38 +457,55 @@ def create_app(db_path: str, settings: Optional[Settings] = None):
             raise HTTPException(status_code=400, detail=str(exc))
         return JSONResponse(payload)
 
-    def _confirm(request_body: Optional[dict]) -> None:
+    def _confirm(request_body: Optional[dict]) -> dict:
         """The rule every destructive route must satisfy (``plan/03`` module 4)."""
         if not isinstance(request_body, dict) or request_body.get("confirm") is not True:
             raise HTTPException(
                 status_code=400,
                 detail="this action requires \"confirm\": true in the request body",
             )
+        return request_body
+
+    def _run_action(action, **kwargs) -> object:
+        """Run one execution-layer call and translate its refusals into HTTP.
+
+        The body returned on success is ``BatchResult.as_dict()`` — the very dict
+        ``doc-dedupe quarantine --format json`` prints — so the page and the
+        command line are two views of one result, not two implementations of one
+        action. Turning a refusal into 400 here and a missing batch into 404 is
+        transport mapping, not policy: membership, the "changed since the scan"
+        check and the hash verification all live in the execution layer, which is
+        what keeps a hand-written POST from moving a file the reviewer never saw.
+        """
+        try:
+            result = action(db_path, **kwargs)
+        except quarantine_mod.UnknownBatch as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except quarantine_mod.QuarantineError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return JSONResponse(result.as_dict())
 
     @app.post("/api/quarantine")
     async def api_quarantine(request: Request) -> object:
-        payload = await _json_body(request)
-        _confirm(payload)
-        return JSONResponse(
-            status_code=501,
-            content={
-                "ok": False,
-                "status": "not_implemented",
-                "message": QUARANTINE_NOT_IMPLEMENTED,
-            },
+        payload = _confirm(await _json_body(request))
+        return _run_action(
+            quarantine_mod.execute_quarantine,
+            cluster_id=payload.get("cluster_id"),
+            keep=payload.get("keep"),
+            move=payload.get("move") or [],
+            confirm=True,
         )
 
     @app.post("/api/undo")
     async def api_undo(request: Request) -> object:
-        payload = await _json_body(request)
-        _confirm(payload)
-        return JSONResponse(
-            status_code=501,
-            content={
-                "ok": False,
-                "status": "not_implemented",
-                "message": QUARANTINE_NOT_IMPLEMENTED,
-            },
+        payload = _confirm(await _json_body(request))
+        batch_id = payload.get("batch_id") or payload.get("batch")
+        if not batch_id:
+            raise HTTPException(
+                status_code=400, detail="this action requires a \"batch_id\""
+            )
+        return _run_action(
+            quarantine_mod.execute_undo, batch_id=str(batch_id), confirm=True
         )
 
     return app
@@ -522,7 +557,7 @@ __all__ = [
     "INDEX_PLACEHOLDER",
     "PAGE_FILE",
     "PageContractError",
-    "QUARANTINE_NOT_IMPLEMENTED",
+    "QUARANTINE_HINT",
     "REVIEW_SCHEMA",
     "assert_no_external_resources",
     "clusters_view",

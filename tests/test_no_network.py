@@ -264,10 +264,13 @@ def test_the_http_surface_sends_nothing_anywhere(corpus, tmp_path):
         client = TestClient(server.create_app(str(db_path)))
         listing = client.get("/api/clusters")
         assert listing.status_code == 200
-        cluster_id = listing.json()["clusters"][0]["cluster_id"]
-        assert client.get("/api/clusters/%s/diff" % cluster_id).status_code == 200
+        cluster = listing.json()["clusters"][0]
+        assert client.get("/api/clusters/%s/diff" % cluster["cluster_id"]).status_code == 200
         assert client.get("/").status_code == 200
-        assert client.post("/api/quarantine", json={"confirm": True}).status_code == 501
+        # Two POSTs that are refused before any work: what is under test is the
+        # socket audit, not the status code.
+        assert client.post("/api/quarantine", json={"confirm": False}).status_code == 400
+        assert client.post("/api/undo", json={"confirm": True}).status_code == 400
 
     assert guard.remote == [], "a request left the machine: %s" % guard.remote
     # Loopback traffic did happen, which is what makes the assertion above real

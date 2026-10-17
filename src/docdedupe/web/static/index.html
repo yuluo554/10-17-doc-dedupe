@@ -79,6 +79,11 @@
   #notice.error { background: var(--del-bg); color: var(--del-ink); }
   .hint { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 10px 12px; border-radius: 6px; }
   .muted { color: var(--muted); }
+  .batches { border-top: 2px solid var(--line); background: #fbfcfd; }
+  .batches h2 { font-size: 13px; margin: 0; padding: 10px 12px 4px; }
+  .batch { padding: 8px 12px 12px; border-top: 1px solid var(--line); }
+  .batch .reason { font-size: 12px; color: #374151; margin: 3px 0 6px; }
+  .batch button { font-size: 12px; }
 </style>
 </head>
 <body>
@@ -97,7 +102,7 @@
 
 <footer>
   <span id="disclaimer">__DOCDEDUPE_DISCLAIMER__</span>
-  <span class="muted">本页只读展示；不会上传任何文档内容，也不会联网。</span>
+  <span class="muted">本页不联网、不上传文档内容；索引只读打开，隔离只在点击确认后把选中的文件移入 .dedupe-quarantine/，可随时复原。</span>
 </footer>
 
 <script>
@@ -105,7 +110,7 @@
 var INDEX_PATH = __DOCDEDUPE_INDEX__;
 var TIER_LABEL = { exact: "完全重复", near: "近重复", template: "模板族" };
 
-var state = { clusters: [], selected: null, detail: null, onlyDiff: false };
+var state = { clusters: [], selected: null, detail: null, onlyDiff: false, batches: [] };
 
 function el(tag, cls, text) {
   var node = document.createElement(tag);
@@ -148,6 +153,10 @@ function renderList() {
     card.addEventListener("click", function () { selectCluster(cluster.cluster_id); });
     list.appendChild(card);
   });
+  var batches = el("div", "batches");
+  batches.id = "batches";
+  list.appendChild(batches);
+  renderBatches(state.batches);
 }
 
 function renderEmpty(hint) {
@@ -314,7 +323,7 @@ function renderActionBar(data) {
   var noticeBox = el("span", "");
   noticeBox.id = "notice";
   bar.appendChild(noticeBox);
-  var wrap = document.createElement("div");
+  var wrap = el("div");
   wrap.appendChild(bar);
   return wrap;
 }
@@ -337,27 +346,105 @@ function updateActionBar() {
 
 function requestQuarantine() {
   var data = state.detail;
+  var keeping = data.clusters_members.find(function (m) { return m.doc_id === data.kept_choice; }) || {};
   var moving = data.clusters_members
     .filter(function (member) { return member.doc_id !== data.kept_choice; })
     .map(function (member) { return member.path_abs; });
-  var payload = {
-    cluster_id: data.cluster_id,
-    keep: (data.clusters_members.find(function (m) { return m.doc_id === data.kept_choice; }) || {}).path_abs,
-    move: moving,
-    confirm: true
-  };
+  if (!moving.length) {
+    notice("warn", "这一簇没有可隔离的其他成员。");
+    return;
+  }
+  // The dialog names what will move, because the confirmation is the user's
+  // decision and it must be made against the file list, not against a button
+  // label. The request still carries confirm: true, which is what the server
+  // checks; nothing here decides anything.
+  if (!window.confirm("把下列 " + moving.length + " 份移入隔离区（保留 " + (keeping.path || "-") +
+      "）？\n\n" + moving.join("\n") + "\n\n文件不会删除，可用 undo 复原。")) {
+    notice("warn", "已取消：没有文件被移动。");
+    return;
+  }
   fetchJson("/api/quarantine", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      cluster_id: data.cluster_id,
+      keep: keeping.path_abs,
+      move: moving,
+      confirm: true
+    })
   }).then(function (result) {
-    var message = (result.body && (result.body.message || result.body.detail)) || "无响应内容";
-    notice(result.status === 501 ? "warn" : (result.ok ? "info" : "error"),
-      "HTTP " + result.status + " · " + message);
+    var body = result.body || {};
+    if (result.ok) {
+      notice("info", "已隔离 " + (body.counts ? body.counts.moved : 0) + " 份 · batch " +
+        body.batch_id + " · manifest " + body.manifest);
+      refreshBatches();
+      return;
+    }
+    notice("error", "HTTP " + result.status + " · " + (body.detail || body.message || "无响应内容"));
   }).catch(function (error) {
     notice("error", String(error));
   });
 }
+
+function requestUndo(batchId) {
+  if (!window.confirm("把 batch " + batchId + " 的文件移回原路径？\n\n每个文件都会先校验 sha256，校验失败则整批中止。")) {
+    notice("warn", "已取消：没有文件被移动。");
+    return;
+  }
+  fetchJson("/api/undo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ batch_id: batchId, confirm: true })
+  }).then(function (result) {
+    var body = result.body || {};
+    if (result.ok) {
+      notice("info", "已复原 " + (body.counts ? body.counts.restored : 0) + " 份 · batch " + body.batch_id);
+      refreshBatches();
+      return;
+    }
+    var detail = body.detail || body.message;
+    if (!detail && body.problems && body.problems.length) { detail = body.problems.join("；"); }
+    notice("error", "HTTP " + result.status + " · " + (detail || "无响应内容"));
+  }).catch(function (error) {
+    notice("error", String(error));
+  });
+}
+
+/* ---------------- quarantine batches ---------------- */
+
+// The undo list is rendered from `/api/clusters`'s `batches`, which the server
+// counts from the manifest files themselves: the page never guesses whether a
+// batch is finished, it shows what the manifest says.
+function renderBatches(batches) {
+  var target = document.getElementById("batches");
+  target.textContent = "";
+  if (!batches || !batches.length) { return; }
+  target.appendChild(el("h2", null, "隔离批次（" + batches.length + "）"));
+  batches.forEach(function (batch) {
+    var card = el("div", "batch");
+    card.appendChild(el("div", "cid", batch.batch_id + " · cluster " + batch.cluster_id +
+      (batch.created_at ? " · " + batch.created_at : "")));
+    card.appendChild(el("div", "keep", "保留：" + batch.keep));
+    card.appendChild(el("div", "reason", "已隔离 " + batch.moved + " / 已复原 " + batch.restored +
+      " / 待处理 " + batch.pending +
+      (batch.manifest_missing ? " / manifest 缺失" : "")));
+    var undo = document.createElement("button");
+    undo.textContent = "复原这一批";
+    undo.disabled = batch.moved === 0 || batch.manifest_missing > 0;
+    undo.addEventListener("click", function () { requestUndo(batch.batch_id); });
+    card.appendChild(undo);
+    target.appendChild(card);
+  });
+}
+
+function refreshBatches() {
+  fetchJson("/api/clusters").then(function (result) {
+    if (!result.ok) { return; }
+    state.batches = result.body.batches || [];
+    renderBatches(state.batches);
+  });
+}
+
 
 /* ---------------- wiring ---------------- */
 
@@ -406,8 +493,10 @@ function boot() {
       cluster.quarantine_message = payload.quarantine_message;
       return cluster;
     });
+    state.batches = payload.batches || [];
     if (payload.status === "empty" || !state.clusters.length) {
       renderEmpty(payload.hint);
+      renderBatches(state.batches);
       return;
     }
     renderList();

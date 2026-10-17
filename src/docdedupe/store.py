@@ -658,3 +658,57 @@ def cluster_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
 
 def count_clusters(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0])
+
+
+# ---------------------------------------------------------------------------
+# Quarantine batches
+# ---------------------------------------------------------------------------
+#
+# This table is module 5's own state, and it is a *lookup index*, not a second
+# copy of the state machine: ``manifest`` holds the absolute path of that batch's
+# ``manifest.json``, which stays the single record of what was moved where. Two
+# copies of the items would be two things to keep in sync, and the whole point of
+# "write the manifest before moving" is that the file on disk is the truth a
+# resumed run reads back.
+
+
+def upsert_quarantine_batch(
+    conn: sqlite3.Connection,
+    *,
+    batch_id: str,
+    cluster_id: str,
+    keep_path: str,
+    manifest_path: str,
+    created_at: str,
+) -> None:
+    """Register one batch, or refresh its manifest path when it is resumed."""
+    conn.execute(
+        "INSERT INTO quarantine_batches (batch_id, cluster_id, keep_path, manifest, "
+        "created_at) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(batch_id) DO UPDATE SET cluster_id = excluded.cluster_id, "
+        "keep_path = excluded.keep_path, manifest = excluded.manifest, "
+        "created_at = excluded.created_at",
+        (batch_id, cluster_id, keep_path, manifest_path, created_at),
+    )
+
+
+def quarantine_batch_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    """Every registered batch, oldest first, then by batch id (stable order)."""
+    return conn.execute(
+        "SELECT batch_id, cluster_id, keep_path, manifest, created_at "
+        "FROM quarantine_batches ORDER BY created_at, batch_id"
+    ).fetchall()
+
+
+def find_quarantine_batch(
+    conn: sqlite3.Connection, batch_id: str
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT batch_id, cluster_id, keep_path, manifest, created_at "
+        "FROM quarantine_batches WHERE batch_id = ?",
+        (batch_id,),
+    ).fetchone()
+
+
+def count_quarantine_batches(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM quarantine_batches").fetchone()[0])

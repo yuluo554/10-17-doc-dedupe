@@ -4,20 +4,20 @@ Exit codes are a public contract and are locked by tests:
 
 ====  ==================================================================
 0     completed, nothing needed attention
-1     completed, but results were found that need review (or a benchmark
-      threshold was not met)
+1     completed, but results were found that need review (a non-empty
+      report, a benchmark that missed its threshold, or a quarantine or
+      undo that left an item half-way)
 2     usage error, missing input, or unusable input
-3     a dependency is missing, or this milestone has not implemented the
-      requested command yet
+3     a dependency is missing (the ``web`` extra, a PDF/DOCX extractor)
 ====  ==================================================================
 
 Code 1 is a *successful* run with findings, not a failure: ``report`` exits 1
 when it wrote a non-empty report, because "there are duplicates" is exactly the
-answer the user asked for. Code 3 is temporary scaffolding: each command is
-retired from ``STAGE_NOT_READY`` as its module lands, and the constant is
-deleted once the last command is implemented. Retiring a command means editing
-this table, the dispatch below, the documentation, and the tests in the same
-commit.
+answer the user asked for, and ``quarantine`` exits 1 when an item could not be
+moved, because "there is still something to do" is likewise an answer. Code 3
+now means only "a dependency is missing"; every declared command is implemented
+and is dispatched through :data:`HANDLERS`, which ``selftest`` cross-checks
+against the parser so a command can never be added without a handler.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from . import __version__
 from .config import DEFAULT_SETTINGS
@@ -37,16 +37,6 @@ EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_USAGE = 2
 EXIT_NOT_READY = 3
-
-# Commands that are declared in the interface but not implemented yet. Each entry
-# maps the command name to the milestone that will implement it. Retiring a
-# command (``serve`` in M4, the rest in M5) means deleting its entry here, giving
-# it a handler in ``main``, and updating the README and the tests in the same
-# commit.
-STAGE_NOT_READY = {
-    "quarantine": "M5",
-    "undo": "M5",
-}
 
 
 def _ensure_utf8_stdio() -> None:
@@ -77,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Exit codes: 0 completed, 1 results need review, 2 usage or input "
-            "error, 3 dependency missing or command not implemented."
+            "error, 3 a dependency is missing."
         ),
     )
     parser.add_argument(
@@ -198,6 +188,24 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="required; without it the command exits 2 and touches no file",
     )
+    p_quarantine.add_argument(
+        "--batch-id",
+        default=None,
+        metavar="ID",
+        help="continue an interrupted batch instead of starting a new one",
+    )
+    p_quarantine.add_argument(
+        "--format",
+        default="text",
+        choices=("text", "json"),
+        help="output format (default: text); json is the same payload the review page returns",
+    )
+    p_quarantine.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: ./.dedupe-cache/index.db)",
+    )
 
     p_undo = sub.add_parser(
         "undo",
@@ -210,6 +218,48 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         required=True,
         help="required; without it the command exits 2 and touches no file",
+    )
+    p_undo.add_argument(
+        "--format",
+        default="text",
+        choices=("text", "json"),
+        help="output format (default: text); json is the same payload the review page returns",
+    )
+    p_undo.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: ./.dedupe-cache/index.db)",
+    )
+
+    p_reports = sub.add_parser(
+        "reports",
+        help="export the quarantine record as CSV or JSON",
+        description=(
+            "Write one row per quarantined file (batch_id, cluster_id, tier, keep, "
+            "moved_path, original_path, sha256, status)."
+        ),
+    )
+    p_reports.add_argument(
+        "--format",
+        default="csv",
+        choices=("csv", "json"),
+        help="report format (default: csv)",
+    )
+    p_reports.add_argument(
+        "--out",
+        default=None,
+        metavar="PATH",
+        help=(
+            "output file, or a directory (existing, or written with a trailing "
+            "separator) to write quarantine_report.<format> into (default: stdout)"
+        ),
+    )
+    p_reports.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: ./.dedupe-cache/index.db)",
     )
 
     sub.add_parser("version", help="print the version and exit")
@@ -335,11 +385,17 @@ def cmd_selftest(args: argparse.Namespace, out, err) -> int:
             finally:
                 conn.close()
 
-    # 5. The declared staging table must reference commands that exist.
+    # 5. Every command the parser exposes must have a handler. This is the check
+    #    that used to watch STAGE_NOT_READY: a command added to the interface
+    #    without an implementation has to fail loudly instead of reaching the
+    #    "no handler" branch in production.
     known = set(_command_names(build_parser()))
-    for name in STAGE_NOT_READY:
-        if name not in known:
-            failures.append("STAGE_NOT_READY names unknown command %r" % name)
+    missing = sorted(known - set(HANDLERS))
+    if missing:
+        failures.append("declared command(s) without a handler: %s" % ", ".join(missing))
+    unknown = sorted(set(HANDLERS) - known)
+    if unknown:
+        failures.append("handler(s) for undeclared command(s): %s" % ", ".join(unknown))
 
     if failures:
         for item in failures:
@@ -509,14 +565,180 @@ def cmd_scan(args: argparse.Namespace, out, err) -> int:
     return EXIT_OK
 
 
-def _not_ready(command: str, milestone: str, err) -> int:
-    _emit(
-        err,
-        "error: '%s' is not implemented in this build (planned for %s). "
-        "Run 'doc-dedupe --help' for the commands that do work."
-        % (command, milestone),
-    )
-    return EXIT_NOT_READY
+def _open_index(db_path: str, err) -> Optional[object]:
+    """Open the index read-only for the commands that only inspect it.
+
+    Returns ``None`` after printing the reason, so each caller can return the
+    documented exit code (2: no index, no documents) without repeating the check.
+    """
+    from . import store
+
+    if not os.path.isfile(db_path):
+        _emit(
+            err,
+            "error: no index at %s; run 'doc-dedupe scan <dir>' first or pass --db"
+            % db_path,
+        )
+        return None
+    try:
+        conn = store.connect_readonly(db_path)
+    except (SchemaVersionError, OSError) as exc:
+        _emit(err, "error: cannot open the index database: %s" % exc)
+        return None
+    if store.count_documents(conn) == 0:
+        conn.close()
+        _emit(err, "error: the index contains no documents; run 'scan' first")
+        return None
+    return conn
+
+
+def _emit_machine_output(args, out, err, result) -> None:
+    """Print a result as text lines or as the shared JSON payload.
+
+    ``--format json`` exists so the payload the review page returns and the
+    payload the command prints are the *same object* rendered twice; a script can
+    then compare them without the two entry points growing two accounts of the
+    same action (``plan/03`` module 5).
+
+    In text mode the result itself goes to stdout and the reasons it is
+    incomplete go to stderr, because "which files did not move and why" is what a
+    caller acts on.
+    """
+    if getattr(args, "format", "text") == "json":
+        import json as json_mod
+
+        _write_payload(
+            out, json_mod.dumps(result.as_dict(), ensure_ascii=False, indent=2) + "\n"
+        )
+        return
+    for line in result.describe():
+        _emit(out, line)
+    for line in result.describe_problems():
+        _emit(err, line)
+
+
+def cmd_quarantine(args: argparse.Namespace, out, err) -> int:
+    """Move the listed cluster members into a reversible quarantine.
+
+    Exit codes: 0 when every listed item is in the quarantine, 1 when an item
+    could not be moved (it stays ``pending`` in the manifest and a re-run with the
+    same ``--batch-id`` continues the work), 2 when the request was refused.
+    """
+    from . import quarantine as quarantine_mod
+
+    db_path = getattr(args, "db", None) or _default_report_db()
+    conn = _open_index(db_path, err)
+    if conn is None:
+        return EXIT_USAGE
+    conn.close()
+
+    try:
+        result = quarantine_mod.execute_quarantine(
+            db_path,
+            cluster_id=args.cluster,
+            keep=args.keep,
+            move=list(args.move),
+            confirm=True,
+            batch_id=args.batch_id,
+        )
+    except quarantine_mod.QuarantineError as exc:
+        _emit(err, "error: %s" % exc)
+        return EXIT_USAGE
+
+    _emit_machine_output(args, out, err, result)
+    if not result.complete:
+        _emit(
+            err,
+            "error: %d item(s) are still pending; re-run with --batch-id %s to continue"
+            % (len(result.pending), result.batch_id),
+        )
+        return EXIT_FINDINGS
+    return EXIT_OK
+
+
+def cmd_undo(args: argparse.Namespace, out, err) -> int:
+    """Restore one batch, verifying every hash before anything moves.
+
+    Exit codes: 0 when every item is back, 1 when the batch could not be fully
+    restored (the manifest names what is left), 2 when the batch is unknown or the
+    request was refused.
+    """
+    from . import quarantine as quarantine_mod
+
+    db_path = getattr(args, "db", None) or _default_report_db()
+    conn = _open_index(db_path, err)
+    if conn is None:
+        return EXIT_USAGE
+    conn.close()
+
+    try:
+        result = quarantine_mod.execute_undo(db_path, batch_id=args.batch, confirm=True)
+    except quarantine_mod.QuarantineError as exc:
+        _emit(err, "error: %s" % exc)
+        return EXIT_USAGE
+
+    _emit_machine_output(args, out, err, result)
+    if not result.complete:
+        return EXIT_FINDINGS
+    return EXIT_OK
+
+
+def _resolve_out_target(out: str, fmt: str) -> str:
+    """Where ``reports --out`` writes: a file, or a directory that gets the default name.
+
+    A path that already is a directory, or one written with a trailing separator,
+    means "put the report in here" — the alternative, creating a *file* named
+    ``out`` because ``out/`` did not exist yet, is the kind of surprise that ends
+    with a stray file next to the corpus.
+    """
+    if os.path.isdir(out) or out.endswith((os.sep, "/", "\\")):
+        return os.path.join(out, "quarantine_report.%s" % fmt)
+    return out
+
+
+def cmd_reports(args: argparse.Namespace, out, err) -> int:
+    """Export the quarantine record: one row per moved file.
+
+    Exit code 1 when some item is still ``pending`` — an interrupted quarantine is
+    exactly the state a reviewer has to look at, and a report that returned 0
+    would hide it from a script.
+    """
+    from . import quarantine as quarantine_mod
+
+    db_path = getattr(args, "db", None) or _default_report_db()
+    conn = _open_index(db_path, err)
+    if conn is None:
+        return EXIT_USAGE
+    try:
+        rows = quarantine_mod.report_rows(conn)
+    finally:
+        conn.close()
+
+    payload = quarantine_mod.render_report(rows, args.format)
+
+    if args.out:
+        target = _resolve_out_target(args.out, args.format)
+        parent = os.path.dirname(os.path.abspath(target))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(target, "w", encoding="utf-8", newline="") as handle:
+            handle.write(payload)
+        _emit(out, "wrote %s report to %s" % (args.format, target))
+    else:
+        _write_payload(out, payload)
+
+    if not rows:
+        _emit(err, "no quarantine batches recorded in this index")
+        return EXIT_OK
+    pending = [row for row in rows if row["status"] == quarantine_mod.STATUS_PENDING]
+    if pending:
+        _emit(
+            err,
+            "%d item(s) are still pending; the quarantine was interrupted and can be "
+            "continued with 'doc-dedupe quarantine --batch-id <id>'" % len(pending),
+        )
+        return EXIT_FINDINGS
+    return EXIT_OK
 
 
 def _default_report_db() -> str:
@@ -698,18 +920,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.print_help(out)
         return EXIT_OK
 
-    if args.command == "version":
-        return cmd_version(args, out, err)
-
-    if args.command == "selftest":
-        return cmd_selftest(args, out, err)
-
-    if args.command == "scan":
-        return cmd_scan(args, out, err)
-
-    if args.command == "report":
-        return cmd_report(args, out, err)
-
     # Argument-level guarantees are enforced here, on the real dispatch path, and
     # not only inside the eventual command implementation: a bind address is a
     # privacy promise, so an invalid one is rejected before any other work.
@@ -722,16 +932,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not (1 <= args.port <= 65535):
             _emit(err, "error: --port must be between 1 and 65535")
             return EXIT_USAGE
-        return cmd_serve(args, out, err)
 
-    milestone = STAGE_NOT_READY.get(args.command)
-    if milestone is not None:
-        return _not_ready(args.command, milestone, err)
+    handler = HANDLERS.get(args.command)
+    if handler is None:
+        # Unreachable while every declared command has a handler; ``selftest``
+        # cross-checks the two sets, so adding a command without one fails there
+        # instead of silently returning success here.
+        _emit(err, "error: command %r has no handler" % args.command)
+        return EXIT_USAGE
+    return handler(args, out, err)
 
-    # Unreachable while every declared command is staged; kept so that adding a
-    # command without a handler fails loudly instead of returning success.
-    _emit(err, "error: command %r has no handler" % args.command)
-    return EXIT_USAGE
+
+# The dispatch table. ``selftest`` asserts that its keys are exactly the commands
+# the parser declares, so the two can never drift apart.
+HANDLERS: Dict[str, Callable[[argparse.Namespace, object, object], int]] = {
+    "version": cmd_version,
+    "selftest": cmd_selftest,
+    "scan": cmd_scan,
+    "report": cmd_report,
+    "serve": cmd_serve,
+    "quarantine": cmd_quarantine,
+    "undo": cmd_undo,
+    "reports": cmd_reports,
+}
 
 
 if __name__ == "__main__":  # pragma: no cover
