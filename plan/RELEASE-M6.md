@@ -275,6 +275,7 @@ tag 树里的仓库状态与本文件 §一 所写一致；下列改动只出现
 | README 的复验片段改用**真实产物名**（`doc_dedupe-…` 下划线，含两个真实 sha256） | README 原先写的是连字符 `doc-dedupe-0.1.0.tar.gz`——setuptools 规范化后实际是下划线。DoD 要求"README 的附件名与实物一致"，这是唯一一处不一致 |
 | `check_release.py` 新增 `README_ARTIFACTS` 门 | 让上面那类漂移不可能再悄悄发生：README 里出现的任何 `doc[_-]dedupe-*.tar.gz/whl` 必须真的在 Release 里；加了两条测试（提到未发布的名字必须红、提到真实名字必须绿） |
 | 测试数 481 → **483** | 就是上面那两条测试。tag 提交（`5958987`）仍是 481 项；这两个数字各自都说的是自己那次提交 |
+| `plan/HANDOFF-M6.md` §五的 10 项与 `plan/05` M6 节的 9 项 DoD 复选框打勾 | 这两处都写着"逐项打勾"；打勾要等对应事实都出来（tag、Release、CI 对账、0 FAIL），所以只能在 tag 之后做，tag 树里仍是空框 |
 
 tag 之后 `main` 的提交因此与 tag 指向的提交不同，这是 §二 存在的理由——
 `DOC_UNCHANGED` 报 WARN 正是它在如实说明这件事。

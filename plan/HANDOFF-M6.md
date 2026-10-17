@@ -111,16 +111,16 @@ M0–M4 的坑仍然有效，新增：
 
 ## 五、DoD checklist（M6 验收，逐项打勾）
 
-- [ ] `plan/RELEASE-M6.md` 在 tag 之前写好并进 tag 树（`git cat-file -e <tag>:plan/RELEASE-M6.md` 成立）
-- [ ] annotated tag 打在 CI 绿的收尾提交上
-- [ ] GitHub Release 附产物（源码 zip / wheel 任一），本地留副本 + sha256 留档可复验
-- [ ] 干净 clone + 全新 venv 按 README 逐条跑通，记录**退出码语义**（非"全 0"）
-- [ ] CI 四矩阵全绿；`gh run list` 对账（tag push 与 branch push 各一条）
-- [ ] 脱敏扫描：本机绝对路径、QQ 邮箱、tag tagger 邮箱均 0 命中
-- [ ] README 的命令、附件名与实物一致（`LICENSE` 真实存在）
-- [ ] GitHub 仓库 public，description 与 README 定位一致，topics 已补
-- [ ] `check_release.py` 无 FAIL
-- [ ] `plan/00` 台账对应行翻 ✅
+- [x] `plan/RELEASE-M6.md` 在 tag 之前写好并进 tag 树（`git cat-file -e <tag>:plan/RELEASE-M6.md` 成立）
+- [x] annotated tag 打在 CI 绿的收尾提交上
+- [x] GitHub Release 附产物（源码 zip / wheel 任一），本地留副本 + sha256 留档可复验
+- [x] 干净 clone + 全新 venv 按 README 逐条跑通，记录**退出码语义**（非"全 0"）
+- [x] CI 四矩阵全绿；`gh run list` 对账（tag push 与 branch push 各一条）
+- [x] 脱敏扫描：本机绝对路径、QQ 邮箱、tag tagger 邮箱均 0 命中
+- [x] README 的命令、附件名与实物一致（`LICENSE` 真实存在）
+- [x] GitHub 仓库 public，description 与 README 定位一致，topics 已补
+- [x] `check_release.py` 无 FAIL
+- [x] `plan/00` 台账对应行翻 ✅
 
 ## 六、关键命令速查
 
