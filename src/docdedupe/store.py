@@ -208,6 +208,45 @@ class SchemaVersionError(RuntimeError):
     """Raised when an existing index cannot be used by this build."""
 
 
+def connect_readonly(db_path: str) -> sqlite3.Connection:
+    """Open an existing index for reading only.
+
+    Module 4 reads the index and writes nothing (``plan/02`` invariant 3), and
+    the review page is a *viewer*: a bug there must not be able to damage the
+    index. SQLite enforces that structurally — the connection is opened in
+    ``mode=ro``, so any accidental ``INSERT``/``UPDATE`` raises
+    ``OperationalError: attempt to write a readonly database`` instead of
+    silently succeeding. The schema version is still verified, but with a
+    read-only check, because ``connect`` would create the missing metadata row
+    and that write cannot happen here.
+    """
+    path = Path(db_path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError("no index at %s" % db_path)
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'"
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        conn.close()
+        raise SchemaVersionError("%s is not a doc-dedupe index (%s)" % (db_path, exc))
+    if row is None:
+        conn.close()
+        raise SchemaVersionError(
+            "%s has no schema version; it was not written by 'doc-dedupe scan'" % db_path
+        )
+    found = int(row["value"])
+    if found != SCHEMA_VERSION:
+        conn.close()
+        raise SchemaVersionError(
+            "index was written by schema version %d, this build expects %d; "
+            "re-scan to rebuild it" % (found, SCHEMA_VERSION)
+        )
+    return conn
+
+
 def get_meta(conn: sqlite3.Connection, key: str) -> Optional[str]:
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return None if row is None else str(row["value"])
@@ -602,10 +641,14 @@ def cluster_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
     ordered member list; ordering is ``(tier rank, first member path, doc path)``
     which is the same order :mod:`docdedupe.cluster` emits, so a report built
     from the table matches one built from a fresh clustering.
+
+    ``built_at`` travels with the rows because the review page reports *when* the
+    clustering it is showing was computed; without it a user looking at a stale
+    page has no way to tell.
     """
     return conn.execute(
         "SELECT c.cluster_id, c.tier, c.keep_id, c.reason, c.scores_json, "
-        "       m.doc_id, d.path_norm, d.path_abs "
+        "       c.built_at, m.doc_id, d.path_norm, d.path_abs "
         "FROM clusters AS c "
         "JOIN cluster_members AS m ON m.cluster_id = c.cluster_id "
         "JOIN documents AS d ON d.id = m.doc_id "

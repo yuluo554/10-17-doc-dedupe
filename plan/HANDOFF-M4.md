@@ -100,14 +100,25 @@ M0–M2 的坑仍然有效，新增：
 
 ## 五、DoD checklist（M4 验收，逐项打勾）
 
-- [ ] `serve` 起本地服务，断网可用、零外链、无构建步骤
-- [ ] 簇列表三档标签与保留建议直接读 `clusters` 表，Web 层不重算分数或档位
-- [ ] 双栏差异高亮 + 摘要文案由 `diffing.py` 单一实现产出
-- [ ] 摘要文案对真值（B5），且注入缺陷后必须报未达标
-- [ ] `serve` 从 `STAGE_NOT_READY` 退役，退出码契约同步更新
-- [ ] socket 拦截动态审计（零网络）落成测试
-- [ ] 双解释器（3.8 / 3.12）全量 pytest 绿
-- [ ] `plan/00` 台账对应行翻 ✅、`plan/05` M4 DoD 勾选、`plan/HANDOFF-M5.md` 落盘
+- [x] `serve` 起本地服务，断网可用、零外链、无构建步骤
+      （真实服务 + 真实 HTTP 拉取：`/` 200、外链命中 0、`/docs` 404；页面是 `web/static/index.html` 单文件）
+- [x] 簇列表三档标签与保留建议直接读 `clusters` 表，Web 层不重算分数或档位
+      （`clusters` 表 ↔ 页面 API ↔ `report --format json` 三方 27 簇逐项一致；AST 门 + 运行时门各一条）
+- [x] 双栏差异高亮 + 摘要文案由 `diffing.py` 单一实现产出
+      （四句话只在该模块出现；页面不含 `仅差`/`署名`/`shingle`/`jaccard`）
+- [x] 摘要文案对真值（B5），且注入缺陷后必须报未达标
+      （63/63；`count-drift` 6/63、`container-blind` 60/63、`all-signature` 18/63，均 exit 1）
+- [x] `serve` 从 `STAGE_NOT_READY` 退役，退出码契约同步更新
+      （`STAGE_NOT_READY` 只剩 quarantine/undo；serve 0/2/3 各有断言；README 与 cli.py 表头同步）
+- [x] socket 拦截动态审计（零网络）落成测试
+      （`tests/test_no_network.py`：全链路零 socket 尝试；HTTP 侧零非回环；先证明拦截器会拦）
+- [x] 双解释器（3.8 / 3.12）全量 pytest 绿
+      （各 **394 项**）
+- [x] `plan/00` 台账对应行翻 ✅、`plan/05` M4 DoD 勾选、`plan/HANDOFF-M5.md` 落盘
+
+**出口门**：浏览器实操截图留档 `plan/media/M4-review-page.png`（合成数据；27 簇、近重复簇双栏 4 处
+字符级高亮、摘要"仅差 4 段"）。"触发隔离的**执行**"按 `plan/03` 模块⑤ 属 M5，M4 交付按钮 +
+校验 `confirm` 后返回 501 的占位接口（口径变更已记入 `plan/05` M4 节）。
 
 ## 六、关键命令速查
 

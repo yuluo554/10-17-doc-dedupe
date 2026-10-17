@@ -39,9 +39,11 @@ EXIT_USAGE = 2
 EXIT_NOT_READY = 3
 
 # Commands that are declared in the interface but not implemented yet. Each entry
-# maps the command name to the milestone that will implement it.
+# maps the command name to the milestone that will implement it. Retiring a
+# command (``serve`` in M4, the rest in M5) means deleting its entry here, giving
+# it a handler in ``main``, and updating the README and the tests in the same
+# commit.
 STAGE_NOT_READY = {
-    "serve": "M4",
     "quarantine": "M5",
     "undo": "M5",
 }
@@ -158,6 +160,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--open",
         action="store_true",
         help="open the page in the default browser",
+    )
+    # Same SUPPRESS trick as ``scan``/``report``, so ``--db`` before the
+    # subcommand keeps working and ``serve --db x.db`` is also accepted.
+    p_serve.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: ./.dedupe-cache/index.db)",
     )
 
     p_quarantine = sub.add_parser(
@@ -601,6 +611,81 @@ def cmd_report(args: argparse.Namespace, out, err) -> int:
     return EXIT_FINDINGS
 
 
+def cmd_serve(args: argparse.Namespace, out, err) -> int:
+    """Start the local review page for one index.
+
+    Exit codes here describe *starting the server*, not the review: 0 once it
+    stops normally, 2 when there is no usable index, 3 when the ``web`` extra is
+    missing. Findings do not set the exit code — the page is a viewer, and the
+    user reads the clusters off the page rather than off ``$?``.
+
+    An index that was scanned but never reported has an empty ``clusters`` table.
+    The server starts anyway (that is the documented behaviour: the page then
+    tells the user to run ``report``), and the same hint is printed here so the
+    reason is visible before opening a browser. Clustering on demand was rejected
+    on purpose: writing it would make the page a writer, and computing it without
+    writing would make the page disagree with the table the report reads.
+    """
+    from . import store
+
+    db_path = getattr(args, "db", None) or _default_report_db()
+    if not os.path.isfile(db_path):
+        _emit(
+            err,
+            "error: no index at %s; run 'doc-dedupe scan <dir>' first or pass --db"
+            % db_path,
+        )
+        return EXIT_USAGE
+
+    try:
+        conn = store.connect_readonly(db_path)
+    except (SchemaVersionError, OSError) as exc:
+        _emit(err, "error: cannot open the index database: %s" % exc)
+        return EXIT_USAGE
+
+    try:
+        documents = store.count_documents(conn)
+        clusters = store.count_clusters(conn)
+    finally:
+        conn.close()
+
+    if documents == 0:
+        _emit(err, "error: the index contains no documents; run 'scan' first")
+        return EXIT_USAGE
+
+    # Importing the web module is cheap (its imports of the web stack are
+    # tolerated missing), so the missing-extra case is reported before a URL is
+    # announced.
+    from .web import MissingWebDependency
+    from .web import server as web_server
+
+    if not web_server.web_stack_available():
+        _emit(err, "error: %s" % MissingWebDependency("fastapi"))
+        return EXIT_NOT_READY
+
+    _emit(
+        out,
+        "serving the review page at http://%s:%d/ (index: %s, %d cluster(s))"
+        % (args.host, args.port, db_path, clusters),
+    )
+    if clusters == 0:
+        _emit(
+            err,
+            "note: the index has no clustering result yet; the page will ask you to "
+            "run 'doc-dedupe report --db %s' first" % db_path,
+        )
+    try:
+        return web_server.serve(
+            db_path,
+            args.host,
+            args.port,
+            open_browser=bool(getattr(args, "open", False)),
+        )
+    except MissingWebDependency as exc:
+        _emit(err, "error: %s" % exc)
+        return EXIT_NOT_READY
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     _ensure_utf8_stdio()
     parser = build_parser()
@@ -637,6 +722,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not (1 <= args.port <= 65535):
             _emit(err, "error: --port must be between 1 and 65535")
             return EXIT_USAGE
+        return cmd_serve(args, out, err)
 
     milestone = STAGE_NOT_READY.get(args.command)
     if milestone is not None:

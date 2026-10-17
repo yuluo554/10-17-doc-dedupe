@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocDedupe · 差异复核</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1f2329;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --exact: #1f7a4d;
+    --near: #b45309;
+    --template: #5b3fa8;
+    --add-bg: #e7f6ec;
+    --add-ink: #12603a;
+    --del-bg: #fdeaea;
+    --del-ink: #9b1c1c;
+    --mark: #ffe08a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #list { width: 380px; min-width: 280px; overflow: auto; background: var(--panel); border-right: 1px solid var(--line); }
+  #detail { flex: 1; overflow: auto; padding: 14px 16px; min-width: 0; }
+  .card { border-bottom: 1px solid var(--line); padding: 10px 12px; cursor: pointer; }
+  .card:hover { background: #f2f4f7; }
+  .card.active { background: #eef4ff; box-shadow: inset 3px 0 0 #2563eb; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; color: #fff; margin-right: 6px; }
+  .badge.exact { background: var(--exact); }
+  .badge.near { background: var(--near); }
+  .badge.template { background: var(--template); }
+  .card .cid { font-family: ui-monospace, Consolas, monospace; color: var(--muted); font-size: 12px; }
+  .card .keep { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .card .reason { font-size: 12px; color: #374151; margin-top: 4px; }
+  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .summary { font-size: 15px; font-weight: 600; }
+  .stats { color: var(--muted); font-size: 12px; }
+  .columns { display: flex; gap: 10px; align-items: stretch; }
+  .columns > * { min-width: 0; }
+  .col { width: 50%; }
+  .col h3 { font-size: 13px; margin: 0 0 6px; word-break: break-all; }
+  .col h3 .kept { color: var(--exact); font-weight: 600; }
+  .diff { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .cell { width: 50%; min-width: 0; white-space: pre-wrap; word-break: break-word; padding: 2px 6px; border-radius: 3px; }
+  .row.same .cell { color: #4b5563; }
+  .row.replace .cell { background: #fff7e6; }
+  .cell.add { background: var(--add-bg); color: var(--add-ink); }
+  .cell.del { background: var(--del-bg); color: var(--del-ink); }
+  .cell.empty { background: repeating-linear-gradient(45deg, #fafafa, #fafafa 6px, #f2f2f2 6px, #f2f2f2 12px); }
+  mark { background: var(--mark); padding: 0 1px; border-radius: 2px; }
+  .members { margin-top: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .members table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .members th, .members td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  .members .num { text-align: right; font-family: ui-monospace, Consolas, monospace; }
+  footer { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  #actionbar { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button { font: inherit; padding: 5px 12px; border: 1px solid var(--line); border-radius: 5px; background: #fff; cursor: pointer; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  #notice { padding: 4px 8px; border-radius: 4px; }
+  #notice.warn { background: #fef3c7; color: #92400e; }
+  #notice.info { background: #eef2ff; color: #3730a3; }
+  #notice.error { background: var(--del-bg); color: var(--del-ink); }
+  .hint { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 10px 12px; border-radius: 6px; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DocDedupe · 差异复核</h1>
+  <span class="meta" id="counts"></span>
+  <span class="meta" id="indexPath"></span>
+</header>
+
+<main>
+  <section id="list" aria-label="簇列表"></section>
+  <section id="detail">
+    <p class="muted">从左侧选择一个簇，查看成员差异与保留建议。</p>
+  </section>
+</main>
+
+<footer>
+  <span id="disclaimer">__DOCDEDUPE_DISCLAIMER__</span>
+  <span class="muted">本页只读展示；不会上传任何文档内容，也不会联网。</span>
+</footer>
+
+<script>
+"use strict";
+var INDEX_PATH = __DOCDEDUPE_INDEX__;
+var TIER_LABEL = { exact: "完全重复", near: "近重复", template: "模板族" };
+
+var state = { clusters: [], selected: null, detail: null, onlyDiff: false };
+
+function el(tag, cls, text) {
+  var node = document.createElement(tag);
+  if (cls) { node.className = cls; }
+  if (text !== undefined && text !== null) { node.textContent = String(text); }
+  return node;
+}
+
+function notice(kind, message) {
+  var target = document.getElementById("notice");
+  if (!target) { return; }
+  target.className = kind || "";
+  target.textContent = message || "";
+}
+
+function fetchJson(url, options) {
+  return fetch(url, options).then(function (response) {
+    return response.json().catch(function () { return {}; }).then(function (body) {
+      return { status: response.status, ok: response.ok, body: body };
+    });
+  });
+}
+
+/* ---------------- cluster list ---------------- */
+
+function renderList() {
+  var list = document.getElementById("list");
+  list.textContent = "";
+  state.clusters.forEach(function (cluster) {
+    var card = el("div", "card" + (state.selected === cluster.cluster_id ? " active" : ""));
+    card.setAttribute("data-cluster", cluster.cluster_id);
+    var head = el("div");
+    var badge = el("span", "badge " + cluster.tier);
+    badge.textContent = cluster.tier_label + "（" + cluster.tier + "）";
+    head.appendChild(badge);
+    head.appendChild(el("span", "cid", cluster.cluster_id + " · " + cluster.member_count + " 份"));
+    card.appendChild(head);
+    card.appendChild(el("div", "keep", cluster.keep ? "推荐保留：" + cluster.keep : "无保留建议（模板族需人工裁决）"));
+    card.appendChild(el("div", "reason", cluster.reason));
+    card.addEventListener("click", function () { selectCluster(cluster.cluster_id); });
+    list.appendChild(card);
+  });
+}
+
+function renderEmpty(hint) {
+  var list = document.getElementById("list");
+  list.textContent = "";
+  list.appendChild(el("div", "card", "没有簇"));
+  var detail = document.getElementById("detail");
+  detail.textContent = "";
+  detail.appendChild(el("div", "hint", hint || "索引里还没有聚类结果。"));
+}
+
+/* ---------------- diff rendering ---------------- */
+
+/* The two sides arrive in row order. A pair of same/replace segments is one row;
+   a del advances the left side alone and an add the right side. This reads the
+   kinds the server computed — the alignment itself is not re-derived here. */
+function buildRows(left, right) {
+  var rows = [];
+  var i = 0;
+  var j = 0;
+  while (i < left.length || j < right.length) {
+    var l = left[i];
+    var r = right[j];
+    var pairable = l && r && l.kind !== "add" && r.kind !== "del";
+    if (pairable) {
+      rows.push({ same: l.kind === "same" && r.kind === "same", left: l, right: r });
+      i += 1;
+      j += 1;
+    } else if (l && !pairable && l.kind !== "add") {
+      rows.push({ same: false, left: l, right: null });
+      i += 1;
+    } else if (r) {
+      rows.push({ same: false, left: null, right: r });
+      j += 1;
+    } else {
+      break;
+    }
+  }
+  return rows;
+}
+
+function fillText(container, segment) {
+  var text = segment.text || "";
+  var spans = (segment.spans || []).slice().sort(function (a, b) { return a[0] - b[0]; });
+  var pos = 0;
+  spans.forEach(function (span) {
+    var start = Math.max(0, Math.min(span[0], text.length));
+    var end = Math.max(start, Math.min(span[1], text.length));
+    if (start > pos) { container.appendChild(document.createTextNode(text.slice(pos, start))); }
+    var mark = document.createElement("mark");
+    mark.textContent = text.slice(start, end);
+    container.appendChild(mark);
+    pos = end;
+  });
+  if (pos < text.length) { container.appendChild(document.createTextNode(text.slice(pos))); }
+  if (!text.length) { container.appendChild(document.createTextNode("\u00a0")); }
+}
+
+function renderDiff() {
+  var detail = document.getElementById("detail");
+  var data = state.detail;
+  detail.textContent = "";
+
+  var toolbar = el("div", "toolbar");
+  toolbar.appendChild(el("span", "summary", data.summary));
+  toolbar.appendChild(el("span", "stats",
+    "新增 " + data.stats.added + " / 删除 " + data.stats.deleted + " / 替换 " + data.stats.replaced +
+    "（差异段 " + data.stats.differing + "）"));
+  var toggleLabel = el("label");
+  var toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.checked = state.onlyDiff;
+  toggle.addEventListener("change", function () { state.onlyDiff = toggle.checked; renderDiff(); });
+  toggleLabel.appendChild(toggle);
+  toggleLabel.appendChild(document.createTextNode(" 只显示差异"));
+  toolbar.appendChild(toggleLabel);
+  detail.appendChild(toolbar);
+
+  if (state.onlyDiff) { detail.appendChild(el("div", "hint", "已隐藏逐段一致的行")); }
+
+  var columns = el("div", "columns");
+  columns.appendChild(columnHeader(data.left, state.detail.keep_id));
+  columns.appendChild(columnHeader(data.right, state.detail.keep_id));
+  detail.appendChild(columns);
+
+  var rows = buildRows(data.left.segments, data.right.segments);
+  var body = el("div", "diff");
+  rows.forEach(function (row) {
+    if (row.same && state.onlyDiff) { return; }
+    var line = el("div", "row " + (row.same ? "same" : "replace"));
+    line.appendChild(cell(row.left, row.same ? "same" : (row.left ? row.left.kind : "empty")));
+    line.appendChild(cell(row.right, row.same ? "same" : (row.right ? row.right.kind : "empty")));
+    body.appendChild(line);
+  });
+  detail.appendChild(body);
+
+  detail.appendChild(renderMembers(data));
+  detail.appendChild(renderActionBar(data));
+}
+
+function columnHeader(side, keepId) {
+  var wrap = el("div", "col");
+  var title = el("h3");
+  title.appendChild(document.createTextNode(side.path));
+  if (side.doc_id === keepId) {
+    title.appendChild(document.createTextNode(" "));
+    title.appendChild(el("span", "kept", "（推荐保留）"));
+  }
+  wrap.appendChild(title);
+  return wrap;
+}
+
+function cell(segment, kind) {
+  var node = el("div", "cell " + kind);
+  if (segment) { fillText(node, segment); }
+  return node;
+}
+
+function renderMembers(data) {
+  var wrap = el("div", "members");
+  wrap.appendChild(el("div", "muted", "打分与理由来自索引（clusters 表），本页不重算。"));
+  var table = el("table");
+  var head = el("tr");
+  ["保留选择", "文件", "综合分", "完整度", "修改时间", "路径层级", "文件名", "目录"].forEach(function (name) {
+    head.appendChild(el("th", name === "文件" ? "" : "num", name));
+  });
+  table.appendChild(head);
+  var group = "keep-choice-" + data.cluster_id;
+  state.detail.clusters_members.forEach(function (member) {
+    var row = el("tr");
+    var choice = el("td");
+    var radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = group;
+    radio.value = String(member.doc_id);
+    radio.checked = member.doc_id === data.kept_choice;
+    radio.addEventListener("change", function () {
+      state.detail.kept_choice = member.doc_id;
+      updateActionBar();
+    });
+    choice.appendChild(radio);
+    row.appendChild(choice);
+    var path = el("td");
+    path.textContent = member.path + (member.kept ? "（索引推荐）" : "");
+    row.appendChild(path);
+    ["total", "completeness", "recency", "path_depth", "name_clean", "directory"].forEach(function (name) {
+      var value = member.scores && member.scores[name] !== undefined ? member.scores[name] : "";
+      row.appendChild(el("td", "num", typeof value === "number" ? value.toFixed(3) : value));
+    });
+    table.appendChild(row);
+  });
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function renderActionBar(data) {
+  var bar = el("div");
+  bar.id = "actionbar";
+  var button = document.createElement("button");
+  button.id = "quarantineButton";
+  button.className = "primary";
+  button.addEventListener("click", function () { requestQuarantine(); });
+  bar.appendChild(button);
+  var noticeBox = el("span", "");
+  noticeBox.id = "notice";
+  bar.appendChild(noticeBox);
+  var wrap = document.createElement("div");
+  wrap.appendChild(bar);
+  return wrap;
+}
+
+function updateActionBar() {
+  var button = document.getElementById("quarantineButton");
+  var data = state.detail;
+  if (!button || !data) { return; }
+  var keep = null;
+  data.clusters_members.forEach(function (member) {
+    if (member.doc_id === data.kept_choice) { keep = member.path; }
+  });
+  var others = data.clusters_members.filter(function (member) {
+    return member.doc_id !== data.kept_choice;
+  }).length;
+  button.textContent = "隔离其余 " + others + " 份（保留 " + (keep || "-") + "）";
+  button.disabled = data.quarantine_available !== true;
+  notice("info", data.quarantine_message);
+}
+
+function requestQuarantine() {
+  var data = state.detail;
+  var moving = data.clusters_members
+    .filter(function (member) { return member.doc_id !== data.kept_choice; })
+    .map(function (member) { return member.path_abs; });
+  var payload = {
+    cluster_id: data.cluster_id,
+    keep: (data.clusters_members.find(function (m) { return m.doc_id === data.kept_choice; }) || {}).path_abs,
+    move: moving,
+    confirm: true
+  };
+  fetchJson("/api/quarantine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function (result) {
+    var message = (result.body && (result.body.message || result.body.detail)) || "无响应内容";
+    notice(result.status === 501 ? "warn" : (result.ok ? "info" : "error"),
+      "HTTP " + result.status + " · " + message);
+  }).catch(function (error) {
+    notice("error", String(error));
+  });
+}
+
+/* ---------------- wiring ---------------- */
+
+function selectCluster(clusterId) {
+  state.selected = clusterId;
+  renderList();
+  notice("info", "");
+  fetchJson("/api/clusters/" + encodeURIComponent(clusterId) + "/diff").then(function (result) {
+    if (!result.ok) {
+      var detail = document.getElementById("detail");
+      detail.textContent = "";
+      detail.appendChild(el("div", "hint", "无法读取差异：HTTP " + result.status + " · " +
+        (result.body.detail || "")));
+      return;
+    }
+    var data = result.body;
+    var cluster = state.clusters.filter(function (item) { return item.cluster_id === clusterId; })[0];
+    data.clusters_members = cluster.members;
+    data.quarantine_available = cluster.quarantine_available;
+    data.quarantine_message = cluster.quarantine_message;
+    data.kept_choice = (data.left && data.left.doc_id) || (cluster.keep_id || cluster.members[0].doc_id);
+    state.detail = data;
+    renderDiff();
+    updateActionBar();
+  });
+}
+
+function boot() {
+  var indexPath = document.getElementById("indexPath");
+  indexPath.textContent = "索引：" + INDEX_PATH;
+  fetchJson("/api/clusters").then(function (result) {
+    if (!result.ok) {
+      notice("error", "无法读取簇列表：HTTP " + result.status);
+      return;
+    }
+    var payload = result.body;
+    document.getElementById("disclaimer").textContent = payload.disclaimer || "";
+    var counts = payload.counts || {};
+    document.getElementById("counts").textContent =
+      "簇 " + (payload.clusters || []).length +
+      "（完全重复 " + (counts.exact || 0) + " / 近重复 " + (counts.near || 0) +
+      " / 模板族 " + (counts.template || 0) + "）" +
+      (payload.built_at ? " · 聚类时间 " + payload.built_at : "");
+    state.clusters = (payload.clusters || []).map(function (cluster) {
+      cluster.quarantine_available = payload.quarantine_available;
+      cluster.quarantine_message = payload.quarantine_message;
+      return cluster;
+    });
+    if (payload.status === "empty" || !state.clusters.length) {
+      renderEmpty(payload.hint);
+      return;
+    }
+    renderList();
+    selectCluster(state.clusters[0].cluster_id);
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

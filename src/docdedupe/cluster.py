@@ -498,10 +498,10 @@ def _decisive_dimensions(
     return phrases
 
 
-def _length_contrast(
+def _length_parts(
     members: Sequence[Document], winner: Document
-) -> str:
-    """How the other copies compare in length to the kept one.
+) -> List[str]:
+    """How the other copies compare in length, one phrase per kind of difference.
 
     The winner is excluded: "3 份正文等长" in a three-member cluster would
     describe the kept copy as one of its own alternatives, which is both wrong
@@ -518,22 +518,24 @@ def _length_contrast(
         parts.append("%d 份正文更长" % longer)
     if equal:
         parts.append("%d 份正文等长" % equal)
-    return "、".join(parts)
+    return parts
 
 
 def _others_clause(members: Sequence[Document], winner: Document) -> str:
     """One sentence about the copies that are not recommended.
 
-    Split out so the counts are stated once ("其余 5 份正文等长") instead of
-    twice ("其余 5 份：5 份正文等长"), which reads like a tally of two different
-    things.
+    With a single other copy its own phrase already carries the count, so the
+    sentence reads "其余 1 份正文等长" rather than "其余 1 份中 1 份正文等长"; with
+    several, the counts go in the contrast ("其余 5 份中 3 份正文较短、2 份正文等长")
+    so the number of copies is stated once instead of being implied twice.
     """
     others = [member for member in members if member.doc_id != winner.doc_id]
-    contrast = _length_contrast(members, winner)
-    if len(others) == 1:
-        # Strip the leading count: "其余 1 份正文等长", not "其余 1 份1 份正文等长".
-        return "其余 1 份%s" % contrast.split(" ", 1)[-1]
-    return "其余 %d 份中 %s" % (len(others), contrast)
+    parts = _length_parts(members, winner)
+    if not parts:  # every member is the winner: cannot happen in a real cluster
+        return ""
+    if len(others) == 1 and len(parts) == 1:
+        return "其余 %s" % parts[0]
+    return "其余 %d 份中 %s" % (len(others), "、".join(parts))
 
 
 def _tie_break_phrase() -> str:
@@ -564,7 +566,15 @@ def _common_parent(paths: Sequence[str]) -> str:
         return ""
 
 
-def _display_paths(paths: Sequence[str]) -> Tuple[str, ...]:
+def display_paths(paths: Sequence[str]) -> Tuple[str, ...]:
+    """Shorten member paths to their common parent, for a human to read.
+
+    Presentation only, and therefore *not* a decision: the review page calls this
+    on paths it read back from the index, so a page and the report describe the
+    same file with the same spelling. When there is no common parent — two
+    different Windows drives, where ``posixpath.commonpath`` raises — only the
+    file names survive.
+    """
     parent = _common_parent(paths)
     if not parent:
         return tuple(posixpath.basename(path) for path in paths)
@@ -585,7 +595,7 @@ def _build_one(
     members = sorted((by_id[doc_id] for doc_id in doc_ids), key=lambda doc: doc.path_norm)
     member_paths = tuple(member.path_norm for member in members)
     member_ids = tuple(member.doc_id for member in members)
-    displays = _display_paths(member_paths)
+    displays = display_paths(member_paths)
     member_set = set(member_ids)
     internal = [edge for edge in edges if edge.a_id in member_set and edge.b_id in member_set]
 
@@ -822,6 +832,7 @@ __all__ = [
     "TemplateEvidence",
     "build_clusters",
     "clusters_from_index",
+    "display_paths",
     "load_inputs",
     "scores_json",
     "template_evidence",

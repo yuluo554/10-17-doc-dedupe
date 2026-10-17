@@ -12,8 +12,8 @@
 
 ## 状态
 
-**M3 · 聚类与保留建议**。`report` 把 `pairs` 里的候选对聚成簇，判定三档
-（完全重复 / 近重复 / 模板族），给出可解释的保留建议，并导出 md / csv / json 三种报告。
+**M4 · 差异复核界面**。`serve` 起一个只监听本机的复核页面：左侧簇列表（三档标签 + 推荐保留 + 理由），
+右侧双栏差异高亮（段落级 + 字符级）与一句摘要（"仅差 3 段 / 差一个署名 / 差异仅来自版式或编码"）。
 后续里程碑按顺序推进，**未实现的命令显式退出 3 并说明计划里程碑，不返回空结果**。
 
 | 命令 | 状态 |
@@ -21,7 +21,7 @@
 | `doc-dedupe --help` / `version` / `selftest` | ✅ 可用 |
 | `scan` | ✅ 可用（M1 扫描与格式适配；M2 归一化 + 指纹 + 候选召回） |
 | `report` | ✅ 可用（M3 聚类与保留建议，md/csv/json 报告） |
-| `serve` | ⬜ M4（差异复核界面） |
+| `serve` | ✅ 可用（M4 差异复核界面；隔离按钮已就位，执行层 M5 接通） |
 | `quarantine` / `undo` | ⬜ M5（隔离与回滚） |
 
 里程碑与验收标准见 [`plan/05-里程碑与发布.md`](plan/05-里程碑与发布.md)。
@@ -193,6 +193,55 @@ python tools/bench_tiers.py --db <索引库> --near-threshold 0.5               
 应落 `exact`。基准的期望档位由 manifest 自己记录的 `variant` 标签推导，**不读引擎输出**，
 所以不可能"按构造"与引擎一致。
 
+### 复核界面（`serve`）
+
+```bash
+doc-dedupe serve [--db 索引库路径] [--port 8765] [--host 127.0.0.1] [--open]
+```
+
+打开 `http://127.0.0.1:8765/`（CLI 会把地址打印出来）：
+
+- **左侧**：簇列表，带三档标签、推荐保留项与理由字符串；
+- **右侧**：所选簇的双栏差异——段落级增删改 + 改动字符的高亮——以及一句摘要
+  （"仅差 3 段 / 差一个署名 / 差异仅来自版式或编码 / 正文逐段一致"）；
+- **下方**：成员打分表（完整度 / 修改时间 / 路径层级 / 文件名 / 目录）与"保留哪一份"单选；
+- **隔离按钮**已就位，但**本版不会移动任何文件**：点击后接口返回 501 并说明执行层在 M5 落地
+  （宁可明确未实现，也不给一个没验证过的薄版本）。
+
+几条写进不变量、并有测试守着的纪律：
+
+- **只读索引**：连接以 SQLite 的 `mode=ro` 打开，写操作由数据库直接拒绝；页面展示的档位、保留建议、
+  理由与分数**全部读 `clusters` 表**（`report` 写入的那张表），Web 层不重算——否则会出现
+  "报告说留 A、页面说留 B"而无从判断谁错。测试把"表 / 页面 API / `report --format json`"
+  三方逐簇逐项对齐（27 簇）。
+- **零外链、零构建**：整个界面是 `web/static/index.html` 一个文件（内联 CSS/JS，原生 JS），
+  仓库里没有 `package.json`/`node_modules`/`.js`/`.css`；生成出口**每次都**校验页面不含
+  `<link>`/外链脚本/图片/`@import`/CDN，测试用七种 CDN 片段证明这道门会红；
+  `/docs`、`/redoc`、`/openapi.json` 一律 404（Swagger UI 会引 CDN）。
+- **零网络**：socket 拦截动态审计跑完 `scan` → `report` → 页面渲染 → HTTP 请求，断言对外连接为 0；
+  服务只接受回环地址，非回环在 CLI 入口就 exit 2。
+- **刚 `scan` 完还没 `report`**：页面能打开，并提示先运行 `report`——**不会自动聚类**。
+  自动聚类要么写库（页面就成了写入方），要么算而不写（页面与表不一致），两条都比提示更糟。
+- **摘要口径只有一处**：`diffing.py` 是唯一产出这四句话的模块（静态断言），页面只显示接口给的字符串。
+  其中"差一页"首期**不实现**：页级相似度需要页边界，而抽取层只给一条纯文本流；缺定义就不编阈值，
+  故降级为扩展项（`plan/03` §六），基准每次运行都打印这条降级。
+
+### 差异基准（B5）
+
+```bash
+python tools/bench_diff.py --db <索引库> --samples data/samples
+```
+
+逐对点名：**差异段号**（改动的究竟是第几段）与**摘要文案**都要对真值，真值由工具自己从两份抽取文本
+现算（段落差几个、哪些位置不同、归一化后是否一致），不读引擎输出；另有 6 条 crafted 用例覆盖
+合成语料里没有的"差一个署名"，含两条"像署名但不是"的反例。任一不达标即退出码 1。基准同样可证伪：
+
+```bash
+python tools/bench_diff.py --db <索引库> --inject-summary count-drift     # 必须 FAIL
+python tools/bench_diff.py --db <索引库> --inject-summary container-blind # 必须 FAIL
+python tools/bench_diff.py --db <索引库> --inject-summary all-signature   # 必须 FAIL
+```
+
 ### 合成样本与真值
 
 仓库内的 `data/samples/` 全部由 `tools/gen_samples.py` 程序化生成，**不含任何真实文档**：
@@ -213,8 +262,12 @@ py -X utf8 tools/gen_samples.py --bulk <临时目录> --bulk-count 1000
 
 ```bash
 pip install -e ".[extract]"   # 兼容别名；扫描依赖已并入核心安装面
-pip install -e ".[web]"       # fastapi + uvicorn（M4 起需要）
+pip install -e ".[web]"       # fastapi + uvicorn，serve 需要（缺它时 serve 退出 3 并给出这条命令）
 ```
+
+`serve` 之外的一切（`scan` / `report` / 三个基准）在**不含 `web` extra** 的安装上照常工作：
+读模型与差异引擎只依赖标准库，Web 栈的导入被限制在 `web/server.py`，缺依赖时只在构建
+应用那一步报错，并在 CLI 层翻译成退出码 3。
 
 ## 退出码语义
 
@@ -231,10 +284,26 @@ pip install -e ".[web]"       # fastapi + uvicorn（M4 起需要）
 只有在**没有任何文件产出正文**或**一个候选文件都没找到**时才返回 2——那意味着索引没法用于后续步骤，
 返回 0 会让脚本误以为扫描成功。
 
+`serve` 的退出码描述的是**起服务这件事**，不是复核结果：服务正常停止返回 0；没有可用索引
+（文件不存在 / 库里没有文档）返回 2；缺 `web` extra 返回 3 并给出安装命令。索引里还没有聚类结果
+（刚 `scan` 完还没 `report`）**不影响退出码**——服务照常起，页面与 stderr 都会提示先跑 `report`。
+
+```bash
+doc-dedupe scan data/samples --db index.db   # 0
+doc-dedupe report --db index.db              # 1：检出簇；0：没有重复
+doc-dedupe serve  --db index.db              # 0：服务停止；2：索引不可用；3：缺 web extra
+```
+
 ## 隐私
 
-- 只读本地文件，**不发起任何网络请求**；Web 复核页只绑定 `127.0.0.1`。
-- 页面零外链（无 CDN、无外部字体、无外链脚本），断网可用。
+- 只读本地文件，**不发起任何网络请求**；Web 复核页只绑定 `127.0.0.1`（非回环地址在 CLI 入口即被拒绝）。
+- 页面零外链（无 CDN、无外部字体、无外链脚本/图片），断网可用；这条断言常驻在页面生成出口，
+  不是只在测试里验一次。
+- 复核页对索引**只读**：连接以 SQLite `mode=ro` 打开，写操作被数据库拒绝；隔离动作要显式
+  `confirm`，且**本版根本不会移动文件**（执行层在 M5）。
+- 有一条 socket 拦截审计：把 `socket.socket.connect`、`create_connection`、`getaddrinfo` 换成会抛异常并
+  计数的桩，再跑完 `scan` → `report` → 页面渲染 → HTTP 请求，断言**对外连接为 0**（回环流量单独计数，
+  只证明测试客户端自己确实用了本地传输）。
 - 索引库 `*.db`、隔离区 `.dedupe-quarantine/`、导出报告都在 `.gitignore` 里，永不入仓。
 - 仓库内不含任何真实文档；示例与基准数据全部由 `tools/gen_samples.py` 程序化合成。
 
@@ -249,6 +318,7 @@ pip install -e ".[web]"       # fastapi + uvicorn（M4 起需要）
 | [`plan/04-数据计划.md`](plan/04-数据计划.md) | 合成样本、真值语义、基准口径 |
 | [`plan/05-里程碑与发布.md`](plan/05-里程碑与发布.md) | M0–M6 的交付物与 DoD |
 | [`plan/06-交付对标.md`](plan/06-交付对标.md) | 评分栏与招牌动词的证据映射 |
+| [`plan/media/M4-review-page.png`](plan/media/M4-review-page.png) | M4 出口门截图留档（合成数据，浏览器实操） |
 | [`data/README.md`](data/README.md) | 依据查证、数据源可获取性、**数值口径唯一出处** |
 | [`data/samples/truth/manifest.json`](data/samples/truth/manifest.json) | 合成样本的植入真值（只记输入与期望分组） |
 

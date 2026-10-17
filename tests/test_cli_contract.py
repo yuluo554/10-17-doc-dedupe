@@ -132,6 +132,11 @@ def test_report_is_retired_from_the_staging_table():
     assert "report" not in STAGE_NOT_READY
 
 
+def test_serve_is_retired_from_the_staging_table():
+    """M4 landed serve; leaving it staged would make the whole review page look missing."""
+    assert "serve" not in STAGE_NOT_READY
+
+
 def test_staged_commands_all_declared_in_parser():
     known = set(cli._command_names(build_parser()))
     assert set(STAGE_NOT_READY) <= known
@@ -170,10 +175,145 @@ def test_serve_command_rejects_out_of_range_port(port):
     assert "port" in err
 
 
-def test_serve_command_accepts_loopback_and_reports_the_stage():
-    code, out, err = run(["serve", "--host", "127.0.0.1", "--port", "8765"])
-    assert code == EXIT_NOT_READY
-    assert "M4" in err
+def test_serve_accepts_a_subcommand_db_flag():
+    """``serve`` reads an index, so it takes --db like scan/report do."""
+    parser = build_parser()
+    assert parser.parse_args(["serve", "--db", "sub.db"]).db == "sub.db"
+    assert parser.parse_args(["--db", "top.db", "serve"]).db == "top.db"
+
+
+def _reported_index(tmp_path):
+    """Scan and report a two-duplicate tree, returning the index path."""
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    code, out, err = run(["report", "--db", str(db), "--format", "json"])
+    assert code == 1, err
+    return db
+
+
+def test_serve_exits_usage_when_the_index_is_missing(tmp_path):
+    code, out, err = run(["serve", "--db", str(tmp_path / "nope.db")])
+    assert code == EXIT_USAGE
+    assert "no index" in err
+    assert out == ""
+
+
+def test_serve_exits_usage_when_the_index_has_no_documents(tmp_path):
+    from docdedupe import store
+
+    db = tmp_path / "empty.db"
+    store.connect(str(db)).close()
+
+    code, out, err = run(["serve", "--db", str(db)])
+    assert code == EXIT_USAGE
+    assert "no documents" in err
+
+
+def test_serve_announces_the_loopback_url_and_starts_the_server(tmp_path, monkeypatch):
+    """The command must hand a loopback address to the server, and exit 0 after it stops."""
+    from docdedupe.web import server as web_server
+
+    db = _reported_index(tmp_path)
+    calls = []
+
+    def fake_serve(db_path, host, port, **kwargs):
+        calls.append((db_path, host, port, kwargs))
+        return 0
+
+    monkeypatch.setattr(web_server, "serve", fake_serve)
+
+    code, out, err = run(["serve", "--db", str(db), "--port", "8799"])
+
+    assert code == EXIT_OK, err
+    assert "http://127.0.0.1:8799/" in out
+    assert str(db) in out
+    assert calls == [(str(db), "127.0.0.1", 8799, {"open_browser": False})]
+    assert err == ""
+
+
+def test_serve_forwards_the_open_flag(tmp_path, monkeypatch):
+    from docdedupe.web import server as web_server
+
+    db = _reported_index(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        web_server, "serve", lambda *a, **kw: calls.append(kw) or 0
+    )
+
+    code, out, err = run(["serve", "--db", str(db), "--open"])
+
+    assert code == EXIT_OK, err
+    assert calls == [{"open_browser": True}]
+
+
+def test_serve_says_to_run_report_when_the_index_has_no_clusters(tmp_path, monkeypatch):
+    """A fresh scan has an empty ``clusters`` table; the page explains itself.
+
+    The command still starts (that is the documented behaviour), and the reason is
+    visible on stderr before a browser opens.
+    """
+    from docdedupe.web import server as web_server
+
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    monkeypatch.setattr(web_server, "serve", lambda *a, **kw: 0)
+
+    code, out, err = run(["serve", "--db", str(db)])
+
+    assert code == EXIT_OK
+    assert "0 cluster(s)" in out
+    assert "report" in err
+
+
+def test_serve_exits_three_when_the_web_extra_is_missing(tmp_path):
+    """A missing extra is exit 3 with an install hint, not a traceback.
+
+    The import is really made to fail (``fastapi`` is set to ``None`` in
+    ``sys.modules``, which makes ``import fastapi`` raise), so this exercises the
+    same path a user without the extra would hit rather than a monkeypatched flag.
+    """
+    import importlib
+
+    from docdedupe.web import server as web_server
+
+    db = _reported_index(tmp_path)
+    saved = sys.modules.get("fastapi")
+    sys.modules["fastapi"] = None
+    try:
+        reloaded = importlib.reload(web_server)
+        assert reloaded.web_stack_available() is False
+
+        code, out, err = run(["serve", "--db", str(db)])
+
+        assert code == EXIT_NOT_READY
+        assert "pip install" in err
+        assert "web" in err
+        assert "http://" not in out
+    finally:
+        if saved is None:
+            sys.modules.pop("fastapi", None)
+        else:
+            sys.modules["fastapi"] = saved
+        importlib.reload(web_server)
+
+
+def test_serve_module_stays_importable_without_the_extra():
+    """The read models are stdlib-only; only the app builder needs the extra."""
+    import importlib
+
+    from docdedupe.web import server as web_server
+
+    saved = sys.modules.get("fastapi")
+    sys.modules["fastapi"] = None
+    try:
+        reloaded = importlib.reload(web_server)
+        assert reloaded.web_stack_available() is False
+        assert reloaded.find_external_resources("<html></html>") == []
+        assert reloaded.render_page("x.db")
+    finally:
+        if saved is None:
+            sys.modules.pop("fastapi", None)
+        else:
+            sys.modules["fastapi"] = saved
+        importlib.reload(web_server)
 
 
 def test_quarantine_requires_confirm_flag_in_parser():
