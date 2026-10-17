@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-dedupe"
+version = "0.1.0"
+description = "Local content-level near-duplicate finder and organizer for documents (PDF/DOCX/Markdown/TXT/HTML)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "yuluo554", email = "282769740+yuluo554@users.noreply.github.com" }]
+keywords = ["deduplication", "near-duplicate", "simhash", "minhash", "documents", "local-first"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Utilities",
+]
+
+# Core runtime dependencies. Kept empty until module 1 (extraction) lands, so the
+# M0 skeleton installs and runs offline. See plan/02 section 2 for the selection rationale.
+dependencies = []
+
+[project.optional-dependencies]
+extract = [
+  "pypdf>=3.0,<6",
+  "python-docx>=1.0,<2",
+]
+web = [
+  "fastapi>=0.100,<1",
+  "uvicorn>=0.23,<1",
+]
+dev = [
+  "pytest>=7,<9",
+  "pytest-cov>=4,<6",
+  "httpx>=0.24,<1",
+]
+
+[project.scripts]
+doc-dedupe = "docdedupe.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+docdedupe = ["web/static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:docdedupe.*"]
+
+[tool.coverage.run]
+source = ["src/docdedupe"]

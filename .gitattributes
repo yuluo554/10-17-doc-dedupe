@@ -1,0 +1,20 @@
+# Source files are normalized to LF so the tree is identical on every platform.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# Synthetic sample documents are byte-frozen: the generator's --check compares
+# bytes, so line ending normalization must never touch them.
+data/samples/** -text
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
