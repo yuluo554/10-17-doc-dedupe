@@ -36,7 +36,9 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 |---|---|---|---|
 | 第 1 轮 | `9094506`（已被重写） | **4/4 失败** | 4 个作业各报同一批问题；见 1.3 |
 | 第 2 轮 | `caa2043`（已被重写） | **4/4 成功** | 481 项 / 0 跳过 / 0 失败，四作业一致 |
-| 第 3 轮 | 收尾提交（含本文件） | 见第二节 | tag 就打在它上面 |
+| 第 3 轮 | `0a76678`（已被重写） | **4/4 成功** | 同上 |
+| 第 4 轮 | `3ae7059`（已被重写） | **4/4 失败** | 本文件自己把抹掉的字面量抄了回来；见 1.3 末段 |
+| 第 5 轮 | 收尾提交（含本文件） | 见第二节 | tag 就打在它上面 |
 
 第 2 轮的读法值得写下来：结论行之外还核了两件事——**用例数**与**没有跳过**。
 把每个作业的 pytest 进度行抽出来数：`481` 个字符，全部是 `.`，非点字符 `0`
@@ -53,11 +55,11 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 本机只有 Windows，M4/M5 的验收也只在 Windows 上做过，所以这三个问题一直藏着：
 
 1. **门禁把自己的测试文件拦下来了**。`tests/test_check_release.py` 为了让"非 noreply
-   身份"那条断言可红，写死了 `user.email=<name>@<provider>` 与 `C:/Users/<name>/notes.md`
-   两个字面量——脱敏门在同一个提交里把 worktree 与 git 历史两个门都判红。
-   门是对的，写测试的方式不对。
+   身份"那条断言可红，写死了一个本机用户目录形状的路径与一个 QQ 邮箱地址
+   （两处字面量在下表按形状描述，本文件不再原样复写它们——复写就等于又把它们带回来）。
+   脱敏门在同一个提交里把 worktree 与 git 历史两个门都判红。门是对的，写测试的方式不对。
 2. **`test_normalize_path_is_absolute_and_uses_forward_slashes` 是 Windows-only 写法**：
-   断言 `endswith("/") or ":" in normalized`，而 POSIX 绝对路径 `/home/<user>/...`
+   断言 `endswith("/") or ":" in normalized`，而 POSIX 绝对路径（形如 `/home/<user>/...`）
    两条都不满足。
 3. **socket 审计的非空断言依赖平台**：`test_the_http_surface_sends_nothing_anywhere`
    用 `guard.loopback` 非空来证明"上面的 remote == [] 不是空跑"，理由是"测试客户端走真实
@@ -120,16 +122,23 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 
 | 次序 | 抹掉什么 | 原因 |
 |---|---|---|
-| 1 | M0 提交 `HANDOFF-M1.md` 里的 `C:/Users/<本机用户名>/.agents/skills/...` | M1 已在工作树修掉，但 blob 留在历史里 |
-| 2 | `tests/test_check_release.py` 里的 `C:/Users/<name>/` | 见 1.3 第 1 条 |
-| 3 | `tests/test_check_release.py` 里的 `<name>@<provider>` 与其断言里的 `<qq-domain>` | M6 DoD 要求 QQ 邮箱 0 命中，而门当时只认"QQ 号前缀"的形式 |
+| 1 | M0 提交 `HANDOFF-M1.md` 里的本机用户目录路径（`C:/Users/<name>/.agents/skills/...`） | M1 已在工作树修掉，但 blob 留在历史里 |
+| 2 | `tests/test_check_release.py` 里一个本机用户目录形状的路径（`C:/Users/<name>/...`） | 见 1.3 第 1 条 |
+| 3 | `tests/test_check_release.py` 里一个 QQ 邮箱地址（`<name>@<provider>` 形式）及其断言中的同一域名 | M6 DoD 要求 QQ 邮箱 0 命中，而门当时只认"QQ 号前缀"的形式 |
+| 4 | 本文件（`plan/RELEASE-M6.md`）在 1.3/1.6 两节里原样复写的上述字面量 | 留档把抹掉的东西抄了一遍，等于带回来；已改为按形状描述 |
 
 第 2、3 次之后各重跑一次全量门禁。重写用 `git filter-repo --replace-text`（逐 blob 改写，
 不做 checkout，因此 `data/samples` 的样本字节不受影响：样本 blob 摘要前后一致）。
 
 顺带修正的无效口径：`tests/test_repo_invariants.py` 与 `tools/check_release.py` 的 QQ 模式
-从 `\d{5,12}@qq[.]com` 收紧为任意 `@qq[.]com`——原模式漏掉了不带 QQ 号的地址形式，
-而 DoD 说的是"QQ 邮箱 0 命中"，不是"QQ 号邮箱 0 命中"。
+从"必须带 QQ 号前缀"（`\d{5,12}` 加在域名前）收紧为任意 QQ 域名——原模式漏掉了不带
+QQ 号的地址形式，而 DoD 说的是"QQ 邮箱 0 命中"，不是"QQ 号邮箱 0 命中"。
+
+**这份留档自己也被门拦过一次**（第 4 轮 CI，四作业同时红）：1.3 与 1.6 两节当初把抹掉的
+字面量原样写了出来，于是 `test_no_machine_absolute_paths_in_tracked_sources` 与
+`..._in_git_history` 双双报红。正确的写法是**按形状描述**（`C:/Users/<name>/...`、
+`<name>@<provider>`），而不是把抹掉的东西再抄一遍——抄一遍就等于把它们带回来。
+这也是"门禁必须能红"的又一次正面例子：它对留档文档一视同仁。
 
 ### 1.7 四个基准与探活（同机复跑）
 
