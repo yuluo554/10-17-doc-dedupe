@@ -33,15 +33,15 @@ jobs:
       - name: Install (core only)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
+          python -m pip install -e ".[dev,extract]"
 
       - name: Smoke test the installed console script
         run: |
           python -m docdedupe --version
           doc-dedupe --version
 
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Verify the synthetic corpus is frozen
+        run: python tools/gen_samples.py --check
 
       - name: Run the test suite
         run: python -m pytest -q

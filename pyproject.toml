@@ -25,9 +25,15 @@ classifiers = [
   "Topic :: Utilities",
 ]
 
-# Core runtime dependencies. Kept empty until module 1 (extraction) lands, so the
-# M0 skeleton installs and runs offline. See plan/02 section 2 for the selection rationale.
-dependencies = []
+# Core runtime dependencies. Extraction lands with module 1, so the two
+# extraction libraries are core: ``scan`` cannot run without them, and pretending
+# otherwise would make the default install fail at runtime instead of at install
+# time. The ``extract`` extra is kept as a compatibility alias because the README
+# and earlier milestones reference it.
+dependencies = [
+  "pypdf>=3.0,<6",
+  "python-docx>=1.0,<2",
+]
 
 [project.optional-dependencies]
 extract = [

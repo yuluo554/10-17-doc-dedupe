@@ -1,0 +1,1122 @@
+{
+  "counts": {
+    "by_expectation": {
+      "ok": 94,
+      "skipped:encrypted": 2,
+      "skipped:no_text_layer": 2,
+      "skipped:unsupported": 3
+    },
+    "by_tier": {
+      "exact": 4,
+      "near": 20,
+      "negative": 10,
+      "template": 3
+    },
+    "by_variant": {
+      "encrypted": 2,
+      "fullwidth": 2,
+      "header_footer": 1,
+      "no_text_layer": 2,
+      "noise": 10,
+      "original": 30,
+      "reformat": 6,
+      "rewrite": 21,
+      "template": 10,
+      "truncate": 14
+    },
+    "files": 101,
+    "groups": 37
+  },
+  "generator_version": 1,
+  "groups": [
+    {
+      "base": "G001_项目方案/G001_a.docx",
+      "diff_kind": "rewrite",
+      "dir": "G001_项目方案",
+      "files": [
+        "G001_项目方案/G001_a.docx",
+        "G001_项目方案/G001_b.md",
+        "G001_项目方案/G001_c.txt"
+      ],
+      "group_id": "G001",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G001_项目方案/G001_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G001_项目方案/G001_b.md",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G001_项目方案/G001_c.txt",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0001",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G002_评审纪要/G002_a.docx",
+      "diff_kind": "truncate",
+      "dir": "G002_评审纪要",
+      "files": [
+        "G002_评审纪要/G002_a.docx",
+        "G002_评审纪要/G002_b.docx",
+        "G002_评审纪要/G002_c.docx",
+        "G002_评审纪要/G002_d.md"
+      ],
+      "group_id": "G002",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G002_评审纪要/G002_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G002_评审纪要/G002_b.docx",
+          "variant": "truncate"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G002_评审纪要/G002_c.docx",
+          "variant": "truncate"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G002_评审纪要/G002_d.md",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0002",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G003_采购说明/G003_a.docx",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G003_采购说明",
+      "files": [
+        "G003_采购说明/G003_a.docx",
+        "G003_采购说明/G003_b.pdf",
+        "G003_采购说明/G003_c.txt"
+      ],
+      "group_id": "G003",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G003_采购说明/G003_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G003_采购说明/G003_b.pdf",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G003_采购说明/G003_c.txt",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0003",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G004_安全交底/G004_a.md",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G004_安全交底",
+      "files": [
+        "G004_安全交底/G004_a.md",
+        "G004_安全交底/G004_b.docx",
+        "G004_安全交底/G004_c.pdf"
+      ],
+      "group_id": "G004",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G004_安全交底/G004_a.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G004_安全交底/G004_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G004_安全交底/G004_c.pdf",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0004",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G005_跨格式一致性/G005_a.docx",
+      "diff_kind": "reformat",
+      "dir": "G005_跨格式一致性",
+      "files": [
+        "G005_跨格式一致性/G005_a.docx",
+        "G005_跨格式一致性/G005_b.md",
+        "G005_跨格式一致性/G005_c.txt",
+        "G005_跨格式一致性/G005_d.html",
+        "G005_跨格式一致性/G005_e.pdf",
+        "G005_跨格式一致性/G005_f.txt"
+      ],
+      "group_id": "G005",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G005_跨格式一致性/G005_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G005_跨格式一致性/G005_b.md",
+          "variant": "reformat"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G005_跨格式一致性/G005_c.txt",
+          "variant": "reformat"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G005_跨格式一致性/G005_d.html",
+          "variant": "reformat"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G005_跨格式一致性/G005_e.pdf",
+          "variant": "reformat"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G005_跨格式一致性/G005_f.txt",
+          "variant": "reformat"
+        }
+      ],
+      "sample_id": "S0005",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G006_进度说明/G006_a.docx",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G006_进度说明",
+      "files": [
+        "G006_进度说明/G006_a.docx",
+        "G006_进度说明/G006_b.docx",
+        "G006_进度说明/G006_c.md"
+      ],
+      "group_id": "G006",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G006_进度说明/G006_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G006_进度说明/G006_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G006_进度说明/G006_c.md",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0006",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G007_质量管理/G007_a.pdf",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G007_质量管理",
+      "files": [
+        "G007_质量管理/G007_a.pdf",
+        "G007_质量管理/G007_b.docx",
+        "G007_质量管理/G007_c.txt"
+      ],
+      "group_id": "G007",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G007_质量管理/G007_a.pdf",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G007_质量管理/G007_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G007_质量管理/G007_c.txt",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0007",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G008_培训方案/G008_a.docx",
+      "diff_kind": "rewrite",
+      "dir": "G008_培训方案",
+      "files": [
+        "G008_培训方案/G008_a.docx",
+        "G008_培训方案/G008_b.md",
+        "G008_培训方案/G008_c.pdf"
+      ],
+      "group_id": "G008",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G008_培训方案/G008_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G008_培训方案/G008_b.md",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G008_培训方案/G008_c.pdf",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0008",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G009_环境措施/G009_a.txt",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G009_环境措施",
+      "files": [
+        "G009_环境措施/G009_a.txt",
+        "G009_环境措施/G009_b.docx",
+        "G009_环境措施/G009_c.md"
+      ],
+      "group_id": "G009",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G009_环境措施/G009_a.txt",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G009_环境措施/G009_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G009_环境措施/G009_c.md",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0009",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G010_全半角混排/G010_a.txt",
+      "diff_kind": "fullwidth",
+      "dir": "G010_全半角混排",
+      "files": [
+        "G010_全半角混排/G010_a.txt",
+        "G010_全半角混排/G010_b.txt",
+        "G010_全半角混排/G010_c.docx"
+      ],
+      "group_id": "G010",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G010_全半角混排/G010_a.txt",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "fullwidth",
+          "file": "G010_全半角混排/G010_b.txt",
+          "variant": "fullwidth"
+        },
+        {
+          "diff_kind": "fullwidth",
+          "file": "G010_全半角混排/G010_c.docx",
+          "variant": "fullwidth"
+        }
+      ],
+      "sample_id": "S0010",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G011_页眉页脚与页码/G011_a.docx",
+      "diff_kind": "header_footer",
+      "dir": "G011_页眉页脚与页码",
+      "files": [
+        "G011_页眉页脚与页码/G011_a.docx",
+        "G011_页眉页脚与页码/G011_b.pdf"
+      ],
+      "group_id": "G011",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G011_页眉页脚与页码/G011_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "header_footer",
+          "file": "G011_页眉页脚与页码/G011_b.pdf",
+          "variant": "header_footer"
+        }
+      ],
+      "sample_id": "S0011",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G012_物流组织/G012_a.docx",
+      "diff_kind": "rewrite",
+      "dir": "G012_物流组织",
+      "files": [
+        "G012_物流组织/G012_a.docx",
+        "G012_物流组织/G012_b.pdf",
+        "G012_物流组织/G012_c.md"
+      ],
+      "group_id": "G012",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G012_物流组织/G012_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G012_物流组织/G012_b.pdf",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G012_物流组织/G012_c.md",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0012",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G013_竣工验收/G013_a.docx",
+      "diff_kind": "mixed:truncate+rewrite",
+      "dir": "G013_竣工验收",
+      "files": [
+        "G013_竣工验收/G013_a.docx",
+        "G013_竣工验收/G013_b.docx",
+        "G013_竣工验收/G013_c.txt"
+      ],
+      "group_id": "G013",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G013_竣工验收/G013_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G013_竣工验收/G013_b.docx",
+          "variant": "truncate"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G013_竣工验收/G013_c.txt",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0013",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G014_运维安排/G014_a.md",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G014_运维安排",
+      "files": [
+        "G014_运维安排/G014_a.md",
+        "G014_运维安排/G014_b.docx",
+        "G014_运维安排/G014_c.pdf"
+      ],
+      "group_id": "G014",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G014_运维安排/G014_a.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G014_运维安排/G014_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G014_运维安排/G014_c.pdf",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0014",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G015_投资复核/G015_a.docx",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G015_投资复核",
+      "files": [
+        "G015_投资复核/G015_a.docx",
+        "G015_投资复核/G015_b.docx",
+        "G015_投资复核/G015_c.md",
+        "G015_投资复核/G015_d.txt"
+      ],
+      "group_id": "G015",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G015_投资复核/G015_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G015_投资复核/G015_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G015_投资复核/G015_c.md",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G015_投资复核/G015_d.txt",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0015",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G016_审计整改/G016_a.pdf",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G016_审计整改",
+      "files": [
+        "G016_审计整改/G016_a.pdf",
+        "G016_审计整改/G016_b.md",
+        "G016_审计整改/G016_c.docx"
+      ],
+      "group_id": "G016",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G016_审计整改/G016_a.pdf",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G016_审计整改/G016_b.md",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G016_审计整改/G016_c.docx",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0016",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G017_设计变更/G017_a.docx",
+      "diff_kind": "rewrite",
+      "dir": "G017_设计变更",
+      "files": [
+        "G017_设计变更/G017_a.docx",
+        "G017_设计变更/G017_b.txt",
+        "G017_设计变更/G017_c.pdf"
+      ],
+      "group_id": "G017",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G017_设计变更/G017_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G017_设计变更/G017_b.txt",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G017_设计变更/G017_c.pdf",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0017",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G018_安全演练/G018_a.md",
+      "diff_kind": "mixed:truncate+rewrite",
+      "dir": "G018_安全演练",
+      "files": [
+        "G018_安全演练/G018_a.md",
+        "G018_安全演练/G018_b.docx",
+        "G018_安全演练/G018_c.pdf"
+      ],
+      "group_id": "G018",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G018_安全演练/G018_a.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G018_安全演练/G018_b.docx",
+          "variant": "truncate"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G018_安全演练/G018_c.pdf",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0018",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G019_质量抽检/G019_a.docx",
+      "diff_kind": "mixed:reformat+rewrite",
+      "dir": "G019_质量抽检",
+      "files": [
+        "G019_质量抽检/G019_a.docx",
+        "G019_质量抽检/G019_b.html",
+        "G019_质量抽检/G019_c.md"
+      ],
+      "group_id": "G019",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G019_质量抽检/G019_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "reformat",
+          "file": "G019_质量抽检/G019_b.html",
+          "variant": "reformat"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G019_质量抽检/G019_c.md",
+          "variant": "rewrite"
+        }
+      ],
+      "sample_id": "S0019",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G020_进度纠偏/G020_a.docx",
+      "diff_kind": "mixed:rewrite+truncate",
+      "dir": "G020_进度纠偏",
+      "files": [
+        "G020_进度纠偏/G020_a.docx",
+        "G020_进度纠偏/G020_b.docx",
+        "G020_进度纠偏/G020_c.pdf"
+      ],
+      "group_id": "G020",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G020_进度纠偏/G020_a.docx",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "rewrite",
+          "file": "G020_进度纠偏/G020_b.docx",
+          "variant": "rewrite"
+        },
+        {
+          "diff_kind": "truncate",
+          "file": "G020_进度纠偏/G020_c.pdf",
+          "variant": "truncate"
+        }
+      ],
+      "sample_id": "S0020",
+      "tier": "near",
+      "variant": "original"
+    },
+    {
+      "base": "G101_完全重复-培训/G101_a.md",
+      "diff_kind": "none",
+      "dir": "G101_完全重复-培训",
+      "files": [
+        "G101_完全重复-培训/G101_a.md",
+        "G101_完全重复-培训/G101_b.md",
+        "G101_完全重复-培训/G101_c.md"
+      ],
+      "group_id": "G101",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G101_完全重复-培训/G101_a.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G101_完全重复-培训/G101_b.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G101_完全重复-培训/G101_c.md",
+          "variant": "original"
+        }
+      ],
+      "sample_id": "S0021",
+      "tier": "exact",
+      "variant": "original"
+    },
+    {
+      "base": "G102_完全重复-环保/G102_a.txt",
+      "diff_kind": "none",
+      "dir": "G102_完全重复-环保",
+      "files": [
+        "G102_完全重复-环保/G102_a.txt",
+        "G102_完全重复-环保/G102_b.txt",
+        "G102_完全重复-环保/G102_c.txt"
+      ],
+      "group_id": "G102",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G102_完全重复-环保/G102_a.txt",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G102_完全重复-环保/G102_b.txt",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G102_完全重复-环保/G102_c.txt",
+          "variant": "original"
+        }
+      ],
+      "sample_id": "S0022",
+      "tier": "exact",
+      "variant": "original"
+    },
+    {
+      "base": "G103_完全重复-物流/G103_a.txt",
+      "diff_kind": "none",
+      "dir": "G103_完全重复-物流",
+      "files": [
+        "G103_完全重复-物流/G103_a.txt",
+        "G103_完全重复-物流/G103_b.txt"
+      ],
+      "group_id": "G103",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G103_完全重复-物流/G103_a.txt",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G103_完全重复-物流/G103_b.txt",
+          "variant": "original"
+        }
+      ],
+      "sample_id": "S0023",
+      "tier": "exact",
+      "variant": "original"
+    },
+    {
+      "base": "G104_完全重复-运维/G104_a.md",
+      "diff_kind": "none",
+      "dir": "G104_完全重复-运维",
+      "files": [
+        "G104_完全重复-运维/G104_a.md",
+        "G104_完全重复-运维/G104_b.md"
+      ],
+      "group_id": "G104",
+      "members": [
+        {
+          "diff_kind": "none",
+          "file": "G104_完全重复-运维/G104_a.md",
+          "variant": "original"
+        },
+        {
+          "diff_kind": "none",
+          "file": "G104_完全重复-运维/G104_b.md",
+          "variant": "original"
+        }
+      ],
+      "sample_id": "S0024",
+      "tier": "exact",
+      "variant": "original"
+    },
+    {
+      "base": "G201_模板合同/G201_a.docx",
+      "diff_kind": "template",
+      "dir": "G201_模板合同",
+      "files": [
+        "G201_模板合同/G201_a.docx",
+        "G201_模板合同/G201_b.docx",
+        "G201_模板合同/G201_c.docx",
+        "G201_模板合同/G201_d.docx"
+      ],
+      "group_id": "G201",
+      "members": [
+        {
+          "diff_kind": "template",
+          "file": "G201_模板合同/G201_a.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G201_模板合同/G201_b.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G201_模板合同/G201_c.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G201_模板合同/G201_d.docx",
+          "variant": "template"
+        }
+      ],
+      "sample_id": "S0025",
+      "tier": "template",
+      "variant": "template"
+    },
+    {
+      "base": "G202_模板周报/G202_a.docx",
+      "diff_kind": "template",
+      "dir": "G202_模板周报",
+      "files": [
+        "G202_模板周报/G202_a.docx",
+        "G202_模板周报/G202_b.docx",
+        "G202_模板周报/G202_c.docx"
+      ],
+      "group_id": "G202",
+      "members": [
+        {
+          "diff_kind": "template",
+          "file": "G202_模板周报/G202_a.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G202_模板周报/G202_b.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G202_模板周报/G202_c.docx",
+          "variant": "template"
+        }
+      ],
+      "sample_id": "S0026",
+      "tier": "template",
+      "variant": "template"
+    },
+    {
+      "base": "G203_模板发票摘要/G203_a.docx",
+      "diff_kind": "template",
+      "dir": "G203_模板发票摘要",
+      "files": [
+        "G203_模板发票摘要/G203_a.docx",
+        "G203_模板发票摘要/G203_b.docx",
+        "G203_模板发票摘要/G203_c.docx"
+      ],
+      "group_id": "G203",
+      "members": [
+        {
+          "diff_kind": "template",
+          "file": "G203_模板发票摘要/G203_a.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G203_模板发票摘要/G203_b.docx",
+          "variant": "template"
+        },
+        {
+          "diff_kind": "template",
+          "file": "G203_模板发票摘要/G203_c.docx",
+          "variant": "template"
+        }
+      ],
+      "sample_id": "S0027",
+      "tier": "template",
+      "variant": "template"
+    },
+    {
+      "base": "negative/N001_成本测算附件.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N001_成本测算附件.md"
+      ],
+      "group_id": "N001",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N001_成本测算附件.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0028",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N002_报价清单附表.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N002_报价清单附表.md"
+      ],
+      "group_id": "N002",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N002_报价清单附表.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0029",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N003_事故案例汇编.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N003_事故案例汇编.md"
+      ],
+      "group_id": "N003",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N003_事故案例汇编.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0030",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N004_排放监测台账.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N004_排放监测台账.md"
+      ],
+      "group_id": "N004",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N004_排放监测台账.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0031",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N005_资源投入说明.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N005_资源投入说明.md"
+      ],
+      "group_id": "N005",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N005_资源投入说明.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0032",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N006_材料复检记录.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N006_材料复检记录.md"
+      ],
+      "group_id": "N006",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N006_材料复检记录.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0033",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N007_课程大纲附录.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N007_课程大纲附录.md"
+      ],
+      "group_id": "N007",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N007_课程大纲附录.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0034",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N008_问题清单说明.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N008_问题清单说明.md"
+      ],
+      "group_id": "N008",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N008_问题清单说明.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0035",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N009_盘点差异说明.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N009_盘点差异说明.md"
+      ],
+      "group_id": "N009",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N009_盘点差异说明.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0036",
+      "tier": "negative",
+      "variant": "noise"
+    },
+    {
+      "base": "negative/N010_竣工资料索引.md",
+      "diff_kind": "noise",
+      "dir": "negative",
+      "files": [
+        "negative/N010_竣工资料索引.md"
+      ],
+      "group_id": "N010",
+      "members": [
+        {
+          "diff_kind": "noise",
+          "file": "negative/N010_竣工资料索引.md",
+          "variant": "noise"
+        }
+      ],
+      "sample_id": "S0037",
+      "tier": "negative",
+      "variant": "noise"
+    }
+  ],
+  "seed": 20261017,
+  "skipped": [
+    {
+      "extract_status": "skipped:no_text_layer",
+      "file": "skipped/S9001_scanonly.pdf",
+      "note": "两页纯图形页面，没有任何文本操作符",
+      "variant": "no_text_layer"
+    },
+    {
+      "extract_status": "skipped:no_text_layer",
+      "file": "skipped/S9002_scanonly.pdf",
+      "note": "单页空白文本层",
+      "variant": "no_text_layer"
+    },
+    {
+      "extract_status": "skipped:encrypted",
+      "file": "skipped/S9003_encrypted.pdf",
+      "note": "需要非空用户口令才能打开",
+      "variant": "encrypted"
+    },
+    {
+      "extract_status": "skipped:encrypted",
+      "file": "skipped/S9004_encrypted.pdf",
+      "note": "两页加密样本，正文不可读",
+      "variant": "encrypted"
+    }
+  ],
+  "unsupported": [
+    {
+      "extract_status": "skipped:unsupported",
+      "file": "unsupported/S9101_legacy.doc",
+      "note": "旧版二进制 Word，DOCX 解析器不适用"
+    },
+    {
+      "extract_status": "skipped:unsupported",
+      "file": "unsupported/S9102_fake.pdf",
+      "note": "扩展名是 .pdf，但魔数不是 PDF"
+    },
+    {
+      "extract_status": "skipped:unsupported",
+      "file": "unsupported/S9103_notes.rtf",
+      "note": "RTF 不在首期支持列表内"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ import hashlib
 import os
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, NamedTuple, Optional
 
 from .config import DB_SCHEMA_VERSION, cache_key_fields
 from .config import Settings
@@ -146,6 +146,18 @@ def cache_key(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def absolute_path(path: str) -> str:
+    """Absolute path form stored in ``documents.path_abs``.
+
+    Deliberately the same basis as :func:`normalize_path`: ``abspath`` only makes
+    the path absolute and lexically normal, it does not resolve symlinks. Using
+    ``Path.resolve`` here instead would make ``path_abs`` and ``path_norm``
+    describe different files for a symlinked entry, and the cache key (which is
+    built from the path) would then disagree with the stored identity.
+    """
+    return os.path.abspath(path)
+
+
 def normalize_path(path: str) -> str:
     """Canonical path form used for identity, sorting and cluster ids.
 
@@ -200,3 +212,126 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+
+
+class UpsertOutcome(NamedTuple):
+    """Result of writing one document row.
+
+    ``cache_hit`` means the stored text was reused instead of re-extracting the
+    file. The scan summary reports it, and the cache benchmark asserts on it:
+    a "cache hit" that still read and parsed the document would make the speed-up
+    number meaningless.
+    """
+
+    doc_id: int
+    cache_hit: bool
+
+
+def find_document(conn: sqlite3.Connection, path_norm: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM documents WHERE path_norm = ?", (path_norm,)
+    ).fetchone()
+
+
+def upsert_document(
+    conn: sqlite3.Connection,
+    *,
+    path_abs: str,
+    path_norm: str,
+    size: int,
+    mtime_ns: int,
+    ext: str,
+    extract_status: str,
+    extractor: str,
+    text: str,
+    norm_text: str,
+    cache_key_value: str,
+    scanned_at: str,
+) -> UpsertOutcome:
+    """Insert or refresh one document row keyed by ``path_norm``.
+
+    The identity of a row is the normalized absolute path, not the file name:
+    two files with the same name in different directories are different
+    documents, and the same file reached through a different spelling is the same
+    document.
+
+    Cached text is reused only when the caller decided the cache key matched; this
+    function never inspects the file itself. It does recompute the content
+    hashes, because those are cheap compared to extraction and must reflect the
+    text actually stored.
+    """
+    text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest() if text else ""
+    norm_sha = hashlib.sha256(norm_text.encode("utf-8")).hexdigest() if norm_text else ""
+
+    existing = find_document(conn, path_norm)
+    cache_hit = existing is not None and existing["cache_key"] == cache_key_value
+
+    if existing is None:
+        cursor = conn.execute(
+            "INSERT INTO documents (path_abs, path_norm, size, mtime_ns, ext, "
+            "extract_status, extractor, text, norm_text, text_sha256, norm_sha256, "
+            "cache_key, scanned_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                path_abs,
+                path_norm,
+                size,
+                mtime_ns,
+                ext,
+                extract_status,
+                extractor,
+                text,
+                norm_text,
+                text_sha,
+                norm_sha,
+                cache_key_value,
+                scanned_at,
+            ),
+        )
+        return UpsertOutcome(int(cursor.lastrowid), cache_hit)
+
+    conn.execute(
+        "UPDATE documents SET path_abs = ?, size = ?, mtime_ns = ?, ext = ?, "
+        "extract_status = ?, extractor = ?, text = ?, norm_text = ?, text_sha256 = ?, "
+        "norm_sha256 = ?, cache_key = ?, scanned_at = ? WHERE id = ?",
+        (
+            path_abs,
+            size,
+            mtime_ns,
+            ext,
+            extract_status,
+            extractor,
+            text,
+            norm_text,
+            text_sha,
+            norm_sha,
+            cache_key_value,
+            scanned_at,
+            int(existing["id"]),
+        ),
+    )
+    return UpsertOutcome(int(existing["id"]), cache_hit)
+
+
+def count_documents(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+
+
+def status_counts(conn: sqlite3.Connection) -> Dict[str, int]:
+    rows = conn.execute(
+        "SELECT extract_status, COUNT(*) AS n FROM documents GROUP BY extract_status"
+    ).fetchall()
+    return {str(row["extract_status"]): int(row["n"]) for row in rows}
+
+
+def skipped_documents(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    placeholders = ", ".join("?" for _ in SKIP_STATUSES)
+    return conn.execute(
+        "SELECT path_abs, extract_status FROM documents "
+        "WHERE extract_status IN (%s) ORDER BY path_norm" % placeholders,
+        SKIP_STATUSES,
+    ).fetchall()
+
+
+def touch_document(conn: sqlite3.Connection, doc_id: int, scanned_at: str) -> None:
+    """Record that a cached row was seen again without changing its content."""
+    conn.execute("UPDATE documents SET scanned_at = ? WHERE id = ?", (scanned_at, doc_id))

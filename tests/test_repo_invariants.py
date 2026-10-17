@@ -13,8 +13,6 @@ import os
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src" / "docdedupe"
 PLAN = REPO_ROOT / "plan"
@@ -49,19 +47,30 @@ def test_no_delete_calls_in_the_package():
 
     This is a static assertion on purpose: a runtime test can only prove that the
     paths it exercised did not delete anything.
+
+    The generator in ``tools/`` is included: it runs inside the user's checkout,
+    and a helper that "helpfully" clears the samples directory would be just as
+    destructive as one in the package.
     """
     forbidden_attrs = {"remove", "unlink", "rmtree", "removedirs"}
     offenders = []
-    for path in _python_files(SRC):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if isinstance(func, ast.Attribute) and func.attr in forbidden_attrs:
-                offenders.append("%s:%d %s" % (path.relative_to(REPO_ROOT), node.lineno, func.attr))
-            elif isinstance(func, ast.Name) and func.id == "remove":
-                offenders.append("%s:%d remove()" % (path.relative_to(REPO_ROOT), node.lineno))
+    for root in (SRC, REPO_ROOT / "tools"):
+        if not root.is_dir():
+            continue
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr in forbidden_attrs:
+                    offenders.append(
+                        "%s:%d %s" % (path.relative_to(REPO_ROOT), node.lineno, func.attr)
+                    )
+                elif isinstance(func, ast.Name) and func.id == "remove":
+                    offenders.append(
+                        "%s:%d remove()" % (path.relative_to(REPO_ROOT), node.lineno)
+                    )
     assert offenders == [], "deletion call found: %s" % offenders
 
 
@@ -96,6 +105,55 @@ def test_gitignore_keeps_runtime_state_out_of_the_repo():
     text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     for pattern in (".dedupe-quarantine/", "*.db", "out/"):
         assert pattern in text, "%s missing from .gitignore" % pattern
+
+
+def test_gitignore_admits_the_synthetic_samples():
+    """The sample allow-list must survive the blanket ``*.pdf``/``*.docx`` rules.
+
+    Without these negations every binary sample would be silently untracked, the
+    corpus would ship as metadata only, and ``--check`` would pass on a machine
+    that has the files while a fresh clone has none.
+    """
+    text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    for pattern in ("!data/samples/**/*.pdf", "!data/samples/**/*.docx"):
+        assert pattern in text, "sample allow-list entry missing: %s" % pattern
+
+
+def test_sample_bytes_are_not_line_ending_converted():
+    """``--check`` compares bytes, so git must not normalise the corpus."""
+    text = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert "data/samples/** -text" in text
+
+
+def test_no_machine_absolute_paths_in_tracked_sources():
+    """The repository is published; a developer's checkout path must not leak.
+
+    Scan results and index paths are runtime output (``.gitignore``d). This test
+    covers the files that are actually committed.
+    """
+    import re
+
+    # `D:\ProgramData\...` style paths and the POSIX equivalents of a user home.
+    patterns = (
+        re.compile(r"[A-Za-z]:\\\\?(?:ProgramData|Users)\\\\", re.I),
+        re.compile(r"/home/[a-z0-9_.-]+/", re.I),
+        re.compile(r"/Users/[A-Za-z0-9_.-]+/"),
+    )
+    roots = (REPO_ROOT / "src", REPO_ROOT / "tools", REPO_ROOT / "tests", REPO_ROOT / "plan")
+    offenders = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in {".py", ".md", ".json", ".toml"}:
+                continue
+            if "__pycache__" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for pattern in patterns:
+                for match in pattern.finditer(text):
+                    offenders.append("%s: %r" % (path.relative_to(REPO_ROOT), match.group(0)))
+    assert offenders == [], "absolute developer path found: %s" % offenders
 
 
 def test_plan_documents_declare_the_same_module_count():

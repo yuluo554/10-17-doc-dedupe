@@ -22,6 +22,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from typing import List, Optional, Sequence
 
 from . import __version__
@@ -36,7 +38,6 @@ EXIT_NOT_READY = 3
 # Commands that are declared in the interface but not implemented yet. Each entry
 # maps the command name to the milestone that will implement it.
 STAGE_NOT_READY = {
-    "scan": "M1",
     "report": "M3",
     "serve": "M4",
     "quarantine": "M5",
@@ -102,6 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="PATTERN",
         help="additional directory name to ignore (repeatable)",
+    )
+    # SUPPRESS keeps the top-level --db value when the subcommand does not set
+    # one; giving a plain default here would clobber it with None.
+    p_scan.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: <first root>/.dedupe-cache/index.db)",
     )
 
     p_report = sub.add_parser(
@@ -308,6 +317,109 @@ def _command_names(parser: argparse.ArgumentParser) -> Sequence[str]:
     return ()
 
 
+def _resolve_db_path(args: argparse.Namespace) -> str:
+    """Pick the index path: explicit ``--db``, else a cache dir under the first root."""
+    explicit = getattr(args, "db", None)
+    if explicit:
+        return explicit
+    roots = getattr(args, "roots", None) or []
+    base = os.path.abspath(roots[0]) if roots else os.getcwd()
+    if os.path.isfile(base):
+        base = os.path.dirname(base)
+    return os.path.join(base, ".dedupe-cache", "index.db")
+
+
+def _validate_roots(roots: Sequence[str], err) -> Optional[int]:
+    missing = [root for root in roots if not os.path.exists(root)]
+    if missing:
+        for root in missing:
+            _emit(err, "error: no such file or directory: %s" % root)
+        return EXIT_USAGE
+    return None
+
+
+def _format_scan_summary(summary, db_path: str) -> List[str]:
+    lines = []
+    lines.append(
+        "scanned %d file(s): %d indexed (%d from cache, %d extracted) in %.2fs"
+        % (
+            summary.files_seen,
+            summary.files_indexed,
+            summary.cache_hits,
+            summary.extracted,
+            summary.elapsed_seconds,
+        )
+    )
+    ordered = sorted(summary.by_status.items())
+    for status, count in ordered:
+        lines.append("  %-24s %d" % (status, count))
+
+    if summary.skipped:
+        lines.append("skipped files (not compared, listed for review):")
+        for path, status in summary.skipped:
+            lines.append("  %s  %s" % (status, path))
+
+    lines.append("index: %s" % db_path)
+    return lines
+
+
+def cmd_scan(args: argparse.Namespace, out, err) -> int:
+    """Scan the given roots and update the local index."""
+    from . import scanner, store
+    from . import extract as extract_mod
+
+    failure = _validate_roots(args.roots, err)
+    if failure is not None:
+        return failure
+
+    db_path = _resolve_db_path(args)
+    started = time.perf_counter()
+    scanned_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        conn = store.connect(db_path)
+    except (SchemaVersionError, OSError) as exc:
+        _emit(err, "error: cannot open the index database: %s" % exc)
+        return EXIT_USAGE
+
+    try:
+        try:
+            summary = scanner.scan(
+                conn,
+                [os.path.abspath(root) for root in args.roots],
+                ignore=args.ignore or None,
+                scanned_at=scanned_at,
+                clock=time.perf_counter,
+            )
+        except extract_mod.DependencyMissing as exc:
+            _emit(err, "error: %s" % exc)
+            return EXIT_NOT_READY
+        conn.commit()
+    finally:
+        conn.close()
+
+    summary.elapsed_seconds = time.perf_counter() - started
+    for line in _format_scan_summary(summary, db_path):
+        _emit(out, line)
+
+    if summary.files_indexed == 0:
+        _emit(err, "error: no documents were found under the given roots")
+        return EXIT_USAGE
+    if summary.usable == 0:
+        # Everything was skipped: the index is not usable for any later step, and
+        # returning 0 would let a script believe the scan succeeded.
+        _emit(
+            err,
+            "error: no document yielded text; the index cannot be used "
+            "(%d file(s) skipped)" % summary.skipped_total,
+        )
+        return EXIT_USAGE
+
+    # Skipped files are reported but not a failure: a folder may legitimately
+    # contain a scan-only PDF. They are counted and named above, never hidden.
+    return EXIT_OK
+
+
 def _not_ready(command: str, milestone: str, err) -> int:
     _emit(
         err,
@@ -336,13 +448,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "selftest":
         return cmd_selftest(args, out, err)
 
+    if args.command == "scan":
+        return cmd_scan(args, out, err)
+
     # Argument-level guarantees are enforced here, on the real dispatch path, and
     # not only inside the eventual command implementation: a bind address is a
     # privacy promise, so an invalid one is rejected before any other work.
-        if not (1 <= args.port <= 65535):
-            _emit(err, "error: --port must be between 1 and 65535")
-            return EXIT_USAGE
-
     if args.command == "serve":
         try:
             args.host = _validate_serve_host(args.host)

@@ -80,6 +80,23 @@ class Settings:
         ".html",
         ".htm",
     )
+    # Files the scanner opens only to report them as unsupported. They are real
+    # documents in a format we do not read, so "not compared" has to be visible
+    # rather than the file silently disappearing from the scan.
+    legacy_suffixes: Tuple[str, ...] = (
+        ".doc",
+        ".docm",
+        ".rtf",
+    )
+
+    @property
+    def scan_candidate_suffixes(self) -> Tuple[str, ...]:
+        """Suffixes the walker is willing to open.
+
+        Anything else (``.json``, ``.zip``, images, source files) is not a
+        document candidate at all and must not inflate the skip counters.
+        """
+        return self.indexed_suffixes + self.legacy_suffixes
 
     # --- web ---
     web_host: str = "127.0.0.1"

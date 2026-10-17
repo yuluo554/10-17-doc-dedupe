@@ -12,10 +12,11 @@ import sys
 
 import pytest
 
+import pdfutil
+
 from docdedupe import __version__
 from docdedupe import cli
 from docdedupe.cli import (
-    EXIT_FINDINGS,
     EXIT_NOT_READY,
     EXIT_OK,
     EXIT_USAGE,
@@ -107,9 +108,7 @@ def test_unknown_flag_exits_usage():
 def test_staged_commands_exit_three_with_milestone_hint(command):
     """A not-yet-implemented command must not pretend to succeed."""
     argv = [command]
-    if command == "scan":
-        argv.append(".")
-    elif command == "report":
+    if command == "report":
         argv += ["--format", "json"]
     elif command == "quarantine":
         argv += ["--cluster", "c1", "--keep", "a", "--move", "b", "--confirm"]
@@ -122,6 +121,11 @@ def test_staged_commands_exit_three_with_milestone_hint(command):
     assert "not implemented" in err
     # A staged command must never claim success nor emit a result payload.
     assert out == ""
+
+
+def test_scan_is_retired_from_the_staging_table():
+    """M1 landed scan; leaving it staged would make the command look unimplemented."""
+    assert "scan" not in STAGE_NOT_READY
 
 
 def test_staged_commands_all_declared_in_parser():
@@ -190,3 +194,114 @@ def test_utf8_stdio_guard_tolerates_streams_without_reconfigure():
         cli._ensure_utf8_stdio()
     finally:
         sys.stdout, sys.stderr = saved
+
+
+# ---------------------------------------------------------------------------
+# scan
+# ---------------------------------------------------------------------------
+
+
+def _sample_tree(root):
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "one.txt").write_text("示例项目甲 正文第一段。\n", encoding="utf-8")
+    (root / "a" / "two.md").write_text("# 示例项目乙\n\n正文第二段。\n", encoding="utf-8")
+    return root
+
+
+def test_scan_reports_a_summary_and_exits_zero(tmp_path):
+    root = _sample_tree(tmp_path / "docs")
+    db = tmp_path / "index.db"
+
+    code, out, err = run(["scan", str(root), "--db", str(db)])
+    assert code == EXIT_OK
+    assert err == ""
+    assert "2 file(s)" in out
+    assert "ok" in out
+    assert "from cache" in out
+    assert str(db) in out
+    assert db.is_file()
+
+
+def test_scan_second_run_reports_cache_hits(tmp_path):
+    root = _sample_tree(tmp_path / "docs")
+    db = tmp_path / "index.db"
+
+    code, _, _ = run(["scan", str(root), "--db", str(db)])
+    assert code == EXIT_OK
+    code, out, err = run(["scan", str(root), "--db", str(db)])
+    assert code == EXIT_OK
+    assert "2 indexed (2 from cache, 0 extracted)" in out
+
+
+def test_scan_lists_skipped_files_by_name(tmp_path):
+    from docdedupe import store
+
+    root = tmp_path / "docs"
+    root.mkdir()
+    (root / "good.txt").write_text("正常正文。\n", encoding="utf-8")
+    (root / "scan.pdf").write_bytes(pdfutil.build_no_text_pdf(1))
+
+    code, out, err = run(["scan", str(root), "--db", str(tmp_path / "i.db")])
+    assert code == EXIT_OK
+    assert store.STATUS_NO_TEXT_LAYER in out
+    assert "scan.pdf" in out
+
+
+def test_scan_exits_two_when_the_root_does_not_exist(tmp_path):
+    code, out, err = run(["scan", str(tmp_path / "nope"), "--db", str(tmp_path / "i.db")])
+    assert code == EXIT_USAGE
+    assert "no such file or directory" in err
+    assert out == ""
+
+
+def test_scan_exits_two_when_every_file_is_unusable(tmp_path):
+    """An index with nothing usable must not look like a successful scan."""
+    from docdedupe import store
+
+    root = tmp_path / "docs"
+    root.mkdir()
+    (root / "a.pdf").write_bytes(pdfutil.build_no_text_pdf(1))
+    (root / "b.doc").write_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + bytes(32))
+
+    code, out, err = run(["scan", str(root), "--db", str(tmp_path / "i.db")])
+    assert code == EXIT_USAGE
+    assert "no document yielded text" in err
+    assert store.STATUS_NO_TEXT_LAYER in out
+
+
+def test_scan_exits_two_when_no_documents_are_found(tmp_path):
+    root = tmp_path / "empty"
+    root.mkdir()
+    (root / "readme.json").write_text("{}", encoding="utf-8")
+
+    code, out, err = run(["scan", str(root), "--db", str(tmp_path / "i.db")])
+    assert code == EXIT_USAGE
+    assert "no documents were found" in err
+
+
+def test_scan_accepts_a_single_file_root(tmp_path):
+    target = tmp_path / "one.txt"
+    target.write_text("示例项目甲 正文。\n", encoding="utf-8")
+
+    code, out, err = run(["scan", str(target), "--db", str(tmp_path / "i.db")])
+    assert code == EXIT_OK
+    assert "1 file(s)" in out
+
+
+def test_scan_default_db_path_lives_under_the_first_root(tmp_path):
+    root = _sample_tree(tmp_path / "docs")
+    code, out, err = run(["scan", str(root)])
+    assert code == EXIT_OK
+    assert (root / ".dedupe-cache" / "index.db").is_file()
+    assert ".dedupe-cache" in out
+
+
+def test_default_db_path_ignores_a_foreign_top_level_value_for_other_commands():
+    """The top-level --db must still be honoured by commands that read it."""
+    parser = build_parser()
+    args = parser.parse_args(["--db", "top.db", "scan", "."])
+    assert args.db == "top.db"
+    args = parser.parse_args(["scan", ".", "--db", "sub.db"])
+    assert args.db == "sub.db"
+    args = parser.parse_args(["--db", "top.db", "scan", "."])
+    assert args.db == "top.db"
