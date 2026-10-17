@@ -128,8 +128,8 @@ PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 ./.venv38/Scripts/python.exe  -m pytest -
 PYTHONUTF8=1 ./.venv312/Scripts/doc-dedupe.exe selftest
 PYTHONUTF8=1 ./.venv312/Scripts/python.exe -m docdedupe --version
 
-# 题面定稿门禁（路径按本机 skill 安装位置替换）
-py -3.12 "<ai-tool-topic-definer>/scripts/check_topic.py" .
+# 题面定稿门禁（脚本在 skill 安装目录下，路径由使用者按本机位置拼接）
+python <ai-tool-topic-definer>/scripts/check_topic.py .
 ```
 
 **待验证（本机没有的东西，别在 M1 里假装绿）**：
