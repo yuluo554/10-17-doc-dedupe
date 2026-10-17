@@ -3,7 +3,8 @@
 - 性质：不参赛项目题 · 发布 GitHub 公开仓库 · 署名 yuluo554
 - 定位宣言："给本机文档做'正文级查重'——跨 PDF/Word/Markdown/TXT/HTML，找出'同一份内容的多个版本'，用可读的差异对比告诉你该留哪一份，并且只隔离、不删除。现有去重工具全部止步于哈希或图像；'文档正文相似'被 czkawka 以 P3-Large effort 关闭搁置——这正是小工具的窗口。中文无空格分词、页眉页脚污染、标书/论文/合同的模板族判定，是英文工具的结构性盲区。"
 - 交付形态：**纯本地 Python CLI + 本地单页 Web 复核界面**（FastAPI + 原生 JS，无构建步骤）；无服务器、无 GPU、无网络。
-- 下一棒：**M6（脱敏发布）**——读 `plan/HANDOFF-M6.md` 即可续接。
+- 下一棒：**无**。M0–M6 全部完成，v0.1.0 已发布：<https://github.com/yuluo554/10-17-doc-dedupe>。
+  留档读 `plan/RELEASE-M6.md`；续做请从该文件的"tag 后追加"与第三节诚实口径起。
 
 ## 文档索引表
 
@@ -24,7 +25,7 @@
 | plan/HANDOFF-M6.md | M6 续接快照 | ✅ M5 收尾落盘 |
 | plan/media/M4-review-page.png | M4 出口门截图留档（合成数据，浏览器实操） | ✅ M4 收尾 |
 | plan/media/M5-quarantine-page.png | M5 出口门截图留档（隔离批次列表 + 按钮接通，浏览器实操） | ✅ M5 收尾 |
-| plan/RELEASE-M6.md | 发布留档三件套落点 | ⬜ 待 M6 |
+| plan/RELEASE-M6.md | 发布留档：tag、产物 sha256、出口门实测（tag 时点 / tag 后追加分栏） | ✅ M6 收尾 |
 | README.md | 对外快速开始 / 退出码 / 隐私 / 文档索引 | ✅ v1（M0） |
 | data/README.md | 依据查证记录 + 数据源可获取性 + 合成与口径纪律 | ✅ v1 |
 | .gitignore / .gitattributes | Python 模板 + 隔离区/索引/真实文档不入仓；LF 归一 + 样本字节冻结 | ✅ v1 |
@@ -76,7 +77,7 @@
 | CSV/JSON 报告导出 | 标准库 | CLI 子命令 | 报告字段完整性断言 | ✅ M3 已落：`report.py` 单一渲染源产出 md/csv/json 三轨；三轨逐簇/逐成员/保留建议一致由测试断言；JSON 键排序固定、无时间戳，两次运行逐字节一致（含跨解释器）。✅ M5 扩展：`reports` 子命令导出隔离记录（`batch_id / cluster_id / tier / keep / moved_path / original_path / sha256 / status`，tier 读 `clusters` 表） |
 | 合成文档集 + 植入真值 | 本题自制（假公司名/假项目名白名单） | 随包样例 | 程序化生成；已知真值簇 | ✅ M1 已落：`data/samples/` 101 个文件 / 37 组；`gen_samples.py --check` 位级守门 `SAMPLES_FROZEN_OK` |
 | 隐私红线：零上传/零遥测，隔离区与索引不入 git | 本题设计 | 仓库基建 + 运行时 | PII/路径扫描门禁；.gitignore 校验 | ✅ M4 已落：`.gitignore` + 网络客户端 import 静态断言 + `serve` 只接受回环地址 + **socket 拦截动态审计**（`scan`→`report`→读模型→渲染 全程零尝试；HTTP 侧零非回环连接） |
-| 发布三件套 | 本题设计 | 仓库发布流程 | tag + Release 附产物 + 留档文件 | ⬜ 待 M6 |
+| 发布三件套 | 本题设计 | 仓库发布流程 | tag + Release 附产物 + 留档文件 | ✅ M6 已落：annotated tag `v0.1.0` 打在 CI 四矩阵全绿的提交上；Release 附 sdist + wheel，本地 `release/` 留副本、sha256 记入 `plan/RELEASE-M6.md`（tag 前定 tag 与产物名、tag 后记 digest，因为产物由 tag 树构建）；`tools/check_release.py` 无 FAIL。首跑 CI 就红了四次（三个平台问题见 `plan/RELEASE-M6.md` §1.3）——正是"本机只有 Windows"掩盖的那一类 |
 
 ## 里程碑初稿
 
@@ -88,7 +89,7 @@
 | M3 聚类与保留建议 | 并查集聚类、三档分类、打分与理由字符串、CSV/JSON 报告 | ✅ 已完成：B4 逐组点名 **27/27 = 100%**（20 near / 4 exact 含 4 组容器级变体升档 / 3 template），跨真值组污染 0 例；每簇 reason 断言 ≥2 判定维度；`template` 档不产出保留建议；三轨报告内容一致、JSON 两次运行逐字节一致；三种缺陷注入（模板并入 near / near 并入模板 / 阈值降到 0.5）均报未达标；1000 份规模聚类 0.42s；3.8 与 3.12 全绿 |
 | M4 复核界面 | FastAPI 本地服务 + 单页原生 JS：簇列表、双栏差异高亮、摘要文案、执行确认 | ✅ 已完成：真实服务 + 浏览器实操截图留档；簇列表与 `clusters` 表、`report --format json` 三方逐项一致（27 簇）；B5 差异段号与摘要 **63/63**、三种注入均 FAIL；零外链常驻断言 + `/docs` 关闭；socket 拦截审计零网络；缺 `web` extra 时 `serve` exit 3；3.8 与 3.12 各 394 项全绿 |
 | M5 隔离与回滚 | `.dedupe-quarantine/<batch-id>/` + manifest 状态机 + undo + 中断恢复 | ✅ 已完成：执行层 `quarantine.py` + CLI `quarantine`/`undo`/`reports` + 页面两个 POST 接通；B6 逐场景点名 **58/58**（往返逐字节一致、中断续做、篡改副本拒绝、原路径被占拒绝），三条注入各报未达标；端到端实测 27 簇 / 84 成员索引上隔离 7 份并全部复原，语料 102 文件逐字节一致；`STAGE_NOT_READY` 常量连同 501 占位一起退役；3.8 与 3.12 各 **452** 项全绿 |
-| M6 发布 | **git tag + GitHub Release（附产物，本地留 release zip 副本并 sha256 留档可复验）+ plan/RELEASE-M6.md 发布留档三件套**；发布 GitHub 公开仓库 | 三件套缺一即未达成 |
+| M6 发布 | **git tag + GitHub Release（附产物，本地留 release zip 副本并 sha256 留档可复验）+ plan/RELEASE-M6.md 发布留档三件套**；发布 GitHub 公开仓库 | ✅ 已完成：<https://github.com/yuluo554/10-17-doc-dedupe>（public，description 与 topics 已补）；annotated tag `v0.1.0`；Release 附 `doc_dedupe-0.1.0.tar.gz` + `doc_dedupe-0.1.0-py3-none-any.whl`，sha256 记在 `plan/RELEASE-M6.md`、本地 `release/` 留副本；留档在 tag 之前写好并进 tag 树；CI 四矩阵全绿（**481 项 / 0 跳过**，四作业一致）；干净 clone + 全新 venv 按 README 逐条跑通并记录退出码语义（`report` 1、无 web extra 的 `serve` 3，不是全 0）；脱敏四步 0 命中（含 git 历史 870 个 blob 与两张截图逐像素）；`tools/check_release.py` 在 tag 后实跑，输出记在 `plan/RELEASE-M6.md` §二 |
 
 ## 数字承诺纪律
 

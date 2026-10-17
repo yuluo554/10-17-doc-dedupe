@@ -839,10 +839,25 @@ def test_the_undo_json_output_reports_restored_items(corpus):
     assert json.loads(out)["counts"]["restored"] == 2
 
 
-def test_the_batch_id_is_sortable_and_unique_enough():
-    ids = {quarantine.new_batch_id("2026-10-17T10:15:00Z") for _ in range(50)}
-    assert len(ids) == 50, "the random suffix must separate batches in the same second"
+def test_the_batch_id_is_sortable_and_its_suffix_is_documented():
+    """Pin the shape of the suffix; do not assert 50 draws all differed.
+
+    ``secrets.token_hex(2)`` is 65,536 suffixes, so among 50 draws the birthday
+    probability of at least one collision is about 1.9% — the earlier version of
+    this test asserted `len(ids) == 50` and went red once in roughly 54 runs on
+    the M6 machine. A collision is not data loss either: reusing a batch id for a
+    *different* request is refused by ``_existing_batch``, and that refusal has
+    its own test (K62). What is worth pinning is that the suffix exists, is four
+    lowercase hex characters, and is not a constant.
+    """
+    ids = [quarantine.new_batch_id("2026-10-17T10:15:00Z") for _ in range(50)]
     assert all(item.startswith("20261017T101500Z-") for item in ids)
+    suffixes = {item.rsplit("-", 1)[1] for item in ids}
+    assert all(
+        len(suffix) == 4 and all(char in "0123456789abcdef" for char in suffix)
+        for suffix in suffixes
+    ), "the suffix is not four lowercase hex characters: %r" % sorted(suffixes)[:3]
+    assert len(suffixes) > 1, "50 draws produced one suffix; the source of randomness looks stuck"
     assert max(ids) > min(ids)
 
 
