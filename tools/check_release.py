@@ -486,30 +486,62 @@ def check_clean_tree(repo: str) -> None:
         add(PASS, "CLEAN_TREE", "the working tree is clean")
 
 
-def check_remote(repo: str, tag: Optional[str]) -> None:
+def check_remote(repo: str, tag: Optional[str], use_gh: bool = True) -> None:
     code, remotes = git(repo, "remote")
     if code != 0 or not remotes.strip():
         add(FAIL, "REMOTE", "no git remote: the public repository is part of the M6 DoD")
         return
-    add(PASS, "REMOTE", "remote configured: %s" % remotes.splitlines()[0].strip())
+    remote = remotes.splitlines()[0].strip()
+    add(PASS, "REMOTE", "remote configured: %s" % remote)
     if not tag:
         return
-    code, local = git(repo, "rev-parse", "%s^{commit}" % tag)
-    code, out = git(repo, "ls-remote", "--tags", remotes.splitlines()[0].strip())
-    if code != 0:
-        add(WARN, "REMOTE_TAG", "could not read remote tags (offline?)")
+    _, local = git(repo, "rev-parse", "%s^{commit}" % tag)
+    local = local.strip()
+
+    code, out = git(repo, "ls-remote", "--tags", remote)
+    if code == 0:
+        peeled = {}
+        for line in out.splitlines():
+            sha, ref = line.split("\t", 1)
+            peeled[ref] = sha
+        remote_sha = peeled.get("refs/tags/%s^{}" % tag) or peeled.get("refs/tags/%s" % tag)
+        if remote_sha == local:
+            add(PASS, "REMOTE_TAG", "the remote tag matches the local one (%s)" % local[:12])
+        elif remote_sha:
+            add(FAIL, "REMOTE_TAG", "remote tag %s != local %s" % (remote_sha[:12], local[:12]))
+        else:
+            add(FAIL, "REMOTE_TAG", "tag %s was never pushed" % tag)
         return
-    peeled = {}
-    for line in out.splitlines():
-        sha, ref = line.split("\t", 1)
-        peeled[ref] = sha
-    remote_sha = peeled.get("refs/tags/%s^{}" % tag) or peeled.get("refs/tags/%s" % tag)
-    if remote_sha == local.strip():
-        add(PASS, "REMOTE_TAG", "the remote tag matches the local one (%s)" % local.strip()[:12])
-    elif remote_sha:
-        add(FAIL, "REMOTE_TAG", "remote tag %s != local %s" % (remote_sha[:12], local.strip()[:12]))
-    else:
-        add(FAIL, "REMOTE_TAG", "tag %s was never pushed" % tag)
+
+    # A network that blocks github.com but allows api.github.com is not unusual
+    # (measured on the machine that cut this release), so fall back to the API
+    # instead of reporting an unverifiable WARN.
+    if use_gh:
+        code, slug = run(["gh", "repo", "view", "--json", "nameWithOwner",
+                          "-q", ".nameWithOwner"], cwd=repo)
+        if code == 0 and slug.strip():
+            slug = slug.strip()
+            code, body = run(["gh", "api", "repos/%s/git/ref/tags/%s" % (slug, tag)], cwd=repo)
+            if code == 0:
+                try:
+                    obj = json.loads(body)["object"]
+                    sha = obj["sha"]
+                    if obj.get("type") == "tag":  # annotated: peel to the commit
+                        code, tag_body = run(
+                            ["gh", "api", "repos/%s/git/tags/%s" % (slug, sha)], cwd=repo)
+                        if code == 0:
+                            sha = json.loads(tag_body)["object"]["sha"]
+                    if sha == local:
+                        add(PASS, "REMOTE_TAG",
+                            "the remote tag matches the local one via the API (%s)" % local[:12])
+                    else:
+                        add(FAIL, "REMOTE_TAG",
+                            "remote tag %s != local %s" % (sha[:12], local[:12]))
+                    return
+                except (ValueError, KeyError):
+                    pass
+    add(WARN, "REMOTE_TAG", "could not read remote tags (offline or blocked): %s"
+        % out[:80].replace("\n", " "))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -542,7 +574,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     check_readme_exit_codes(repo)
     check_leaks(repo)
     check_clean_tree(repo)
-    check_remote(repo, tag)
+    check_remote(repo, tag, not args.no_gh)
 
     print("== release gate: %s (tag=%s) ==" % (os.path.basename(repo), tag))
     for level, name, message in RESULTS:

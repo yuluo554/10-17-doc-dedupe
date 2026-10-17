@@ -193,8 +193,12 @@ def test_a_tampered_local_artifact_fails(repo, capsys):
 
 
 def test_a_machine_path_in_a_tracked_file_fails(repo, capsys):
+    # Assembled at runtime on purpose: writing the literal here would put a
+    # machine-looking path in a tracked file, and the desensitization guard
+    # (tests/test_repo_invariants.py) would — correctly — fail on this file.
+    leak = "C:" + "/" + "Users" + "/" + "someone/notes.md"
     _write_release(repo, "")
-    (repo / "notes.md").write_text("see <home>/notes.md\n", encoding="utf-8")
+    (repo / "notes.md").write_text("see %s\n" % leak, encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "initial")
     _git(repo, "tag", "-a", "v0.1.0", "-m", "release")

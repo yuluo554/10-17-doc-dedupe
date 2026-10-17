@@ -12,7 +12,10 @@
 
 ## 状态
 
-**M5 · 隔离与回滚**。复核之后可以真的动手，而且每一步都可逆：把选中的成员移进
+**M6 · 脱敏发布**。五个模块全部落地，仓库公开发布：源码脱敏（跟踪文件与 git 历史里没有本机路径、
+真实文档名、私人邮箱），四个基准分别在 CI 上跑通，发布产物带 sha256 留档可复验。
+
+复核之后可以真的动手，而且每一步都可逆：把选中的成员移进
 `.dedupe-quarantine/<batch-id>/`，**先写 manifest 再移动**；`undo` 复原时逐个校验 sha256，
 校验通过才按逆序移回，任一项不对就整批中止、不碰任何文件。代码里没有删除路径（静态断言）。
 
@@ -31,7 +34,7 @@
 需要 Python 3.8 及以上。
 
 ```bash
-git clone <this-repo> && cd 10-17-doc-dedupe
+git clone https://github.com/yuluo554/10-17-doc-dedupe.git && cd 10-17-doc-dedupe
 python -m venv .venv
 # Windows (Git Bash)
 ./.venv/Scripts/python.exe -m pip install -e ".[dev]"
@@ -41,6 +44,10 @@ python -m venv .venv
 doc-dedupe --version
 doc-dedupe selftest
 ```
+
+装齐全部能力（含复核页与测试所需的 Web 栈）用 `pip install -e ".[dev,web,extract]"`：
+缺 `web` 时 `serve` 返回 3，且 `tests/test_web.py` 与 `test_no_network.py` 的 HTTP 用例会**跳过**——
+跳过不是通过，CI 装的就是这套 extras。
 
 `selftest` 是**可证伪的**离线自检：安装元数据与包内版本不一致、设置校验器失效、
 缓存键不随 mtime 变化、schema 缺表——任一成立都会返回非 0。
@@ -378,8 +385,9 @@ doc-dedupe reports --db index.db --out out/                                   # 
 - 只读本地文件，**不发起任何网络请求**；Web 复核页只绑定 `127.0.0.1`（非回环地址在 CLI 入口即被拒绝）。
 - 页面零外链（无 CDN、无外部字体、无外链脚本/图片），断网可用；这条断言常驻在页面生成出口，
   不是只在测试里验一次。
-- 复核页对索引**只读**：连接以 SQLite `mode=ro` 打开，写操作被数据库拒绝；隔离动作要显式
-  `confirm`，且**本版根本不会移动文件**（执行层在 M5）。
+- 复核页对索引**只读**：连接以 SQLite `mode=ro` 打开，写操作被数据库拒绝。页面**会移动文件**，
+  但只在点击确认之后，且只移动选中且属于该簇、扫描后未改动的成员；隔离动作要显式 `confirm`
+  （页面是确认框，CLI 是 `--confirm`），随时可用 `undo` 原样移回。
 - 有一条 socket 拦截审计：把 `socket.socket.connect`、`create_connection`、`getaddrinfo` 换成会抛异常并
   计数的桩，再跑完 `scan` → `report` → 页面渲染 → HTTP 请求，断言**对外连接为 0**（回环流量单独计数，
   只证明测试客户端自己确实用了本地传输）。
@@ -398,8 +406,30 @@ doc-dedupe reports --db index.db --out out/                                   # 
 | [`plan/05-里程碑与发布.md`](plan/05-里程碑与发布.md) | M0–M6 的交付物与 DoD |
 | [`plan/06-交付对标.md`](plan/06-交付对标.md) | 评分栏与招牌动词的证据映射 |
 | [`plan/media/M4-review-page.png`](plan/media/M4-review-page.png) | M4 出口门截图留档（合成数据，浏览器实操） |
+| [`plan/media/M5-quarantine-page.png`](plan/media/M5-quarantine-page.png) | M5 出口门截图留档（隔离批次列表 + 按钮接通） |
+| [`plan/RELEASE-M6.md`](plan/RELEASE-M6.md) | M6 发布留档：tag、产物 sha256、出口门实测 |
 | [`data/README.md`](data/README.md) | 依据查证、数据源可获取性、**数值口径唯一出处** |
 | [`data/samples/truth/manifest.json`](data/samples/truth/manifest.json) | 合成样本的植入真值（只记输入与期望分组） |
+
+## 发布与复验
+
+发布留档在 [`plan/RELEASE-M6.md`](plan/RELEASE-M6.md)：tag、产物名与每个产物的 sha256，
+以及 tag 时点事实与 tag 后追加事实（分栏）。产物同时挂在 GitHub Release 上，可这样复验：
+
+```bash
+sha256sum -c <<'EOF'
+<plan/RELEASE-M6.md 里记录的 sha256>  doc-dedupe-0.1.0.tar.gz
+EOF
+```
+
+仓库自带的发布门禁把可机械判定的那一部分做成硬门（tag 是 annotated 且在 CI 之上、
+留档在 tag 树内、产物 sha256 与留档一致、plan/00 台账已翻转、工作树干净、
+跟踪文件与 git 历史里没有本机路径）：
+
+```bash
+python tools/check_release.py .          # 0 = 无 FAIL；1 = 有 FAIL；2 = 用法错误
+python tools/check_release.py . --no-gh  # 离线时跳过需要网络的那几项（报 SKIP，不报 PASS）
+```
 
 ## 相似度不是抄袭判断
 

@@ -123,7 +123,10 @@ def test_cache_key_path_separators_do_not_change_the_key():
 def test_normalize_path_is_absolute_and_uses_forward_slashes():
     normalized = normalize_path(".")
     assert "\\" not in normalized
-    assert normalized.endswith("/") or ":" in normalized
+    # Absolute on either platform: a leading "/" on POSIX, a drive letter on
+    # Windows. The first CI run on ubuntu-latest caught the Windows-only form of
+    # this assertion ("ends with / or has a colon").
+    assert normalized.startswith("/") or ":" in normalized
 
 
 def test_connect_creates_every_expected_table(tmp_path):

@@ -272,10 +272,25 @@ def test_the_http_surface_sends_nothing_anywhere(corpus, tmp_path):
         assert client.post("/api/quarantine", json={"confirm": False}).status_code == 400
         assert client.post("/api/undo", json={"confirm": True}).status_code == 400
 
+        # Prove the allow-path of the guard itself, with a real loopback
+        # connection. The ASGI test client is in-process and opens no socket at
+        # all on some platforms (measured on ubuntu-latest in the first CI run),
+        # so "loopback is non-empty" would otherwise assert a property of httpx
+        # rather than of this guard — and could pass without the guard ever
+        # having permitted anything.
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            probe = socket.create_connection(listener.getsockname(), timeout=5)
+            probe.close()
+        finally:
+            listener.close()
+
     assert guard.remote == [], "a request left the machine: %s" % guard.remote
     # Loopback traffic did happen, which is what makes the assertion above real
-    # rather than a consequence of the client never having opened anything.
-    assert guard.loopback, "the test client did not use its loopback transport"
+    # rather than a consequence of nothing ever having been attempted.
+    assert guard.loopback, "the guard recorded no loopback connection; the audit would be vacuous"
 
 
 def test_the_diff_pipeline_alone_opens_nothing():
