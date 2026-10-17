@@ -24,6 +24,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history on purpose: tests/test_repo_invariants.py walks every
+          # blob reachable from every ref, and the desensitization promise is
+          # about the published *history*, not just the tip. With the default
+          # shallow checkout that gate would silently degrade to one commit.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
