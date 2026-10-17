@@ -208,9 +208,13 @@ def test_a_machine_path_in_a_tracked_file_fails(repo, capsys):
 
 
 def test_a_non_noreply_identity_fails(repo, capsys):
+    # Assembled at runtime: a literal personal mailbox in a tracked file is
+    # exactly what this release is supposed to contain zero of, and the
+    # desensitization guard checks for it (tests/test_repo_invariants.py).
+    mailbox = "someone" + "@" + "qq" + ".com"
     _write_release(repo, "")
     _git(repo, "add", "-A")
-    _git(repo, "-c", "user.email=someone@example.invalid", "commit", "-q", "-m", "initial")
+    _git(repo, "-c", "user.email=%s" % mailbox, "commit", "-q", "-m", "initial")
     _git(repo, "tag", "-a", "v0.1.0", "-m", "release")
     code, out = _run_gate(repo, capsys)
     assert code == 1

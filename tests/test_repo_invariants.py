@@ -141,7 +141,9 @@ _MACHINE_PATH_PATTERNS = (
      "Windows per-machine data root"),
     (re.compile(r"AppData[\\/]Local[\\/]Temp[\\/]([A-Za-z0-9_.-]+)", re.I),
      "local temp directory"),
-    (re.compile(r"\d{5,12}@qq[.]com", re.I), "QQ mailbox"),
+    # A personal mailbox. The M6 DoD asks for zero hits; the bracket around the
+    # dot keeps the pattern from matching its own source text.
+    (re.compile(r"@qq[.]com", re.I), "QQ mailbox"),
 )
 
 
@@ -256,7 +258,12 @@ def test_no_machine_absolute_paths_in_git_history():
 
 
 def test_commit_identities_are_not_personal_mailboxes():
-    """Commits are published; the author/committer address must be the noreply one."""
+    """Commits are published; the author/committer address must be the noreply one.
+
+    Requiring the noreply suffix already excludes every personal mailbox, so no
+    second check against a particular provider is needed here — and writing a
+    provider address into this file would trip the scan above.
+    """
     identities = set()
     for line in _git("log", "--all", "--format=%an|%ae|%cn|%ce").splitlines():
         identities.add(line)
@@ -266,7 +273,6 @@ def test_commit_identities_are_not_personal_mailboxes():
             addr = addr.strip().lower()
             assert addr.endswith("@users.noreply.github.com"), \
                 "commit identity is not a GitHub noreply address: %r" % line
-            assert "@example.invalid" not in addr, "personal mailbox in commit identity: %r" % line
 
 
 def test_plan_documents_declare_the_same_module_count():

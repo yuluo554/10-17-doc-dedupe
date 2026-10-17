@@ -65,7 +65,7 @@ _LEAK_PATTERNS = (
      "developer home directory"),
     (re.compile(r"[A-Za-z]:[\\/]ProgramData[\\/]([A-Za-z0-9_.-]+)[\\/]"),
      "Windows per-machine data root"),
-    (re.compile(r"\d{5,12}@qq[.]com", re.I), "QQ mailbox"),
+    (re.compile(r"@qq[.]com", re.I), "QQ mailbox"),
 )
 _PLACEHOLDERS = {"...", "..", ".", "<user>", "<you>", "<name>", "user", "username", "you"}
 
