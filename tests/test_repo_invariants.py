@@ -257,6 +257,27 @@ def test_no_machine_absolute_paths_in_git_history():
     assert offenders == [], "machine-specific path in git history: %s" % offenders
 
 
+def test_the_history_scan_covers_more_than_the_tip_commit():
+    """A shallow checkout would silently shrink the gate to one commit.
+
+    Found while cutting M6: ``actions/checkout`` defaults to ``fetch-depth: 1``,
+    so in CI this gate scanned the tip's ~172 blobs instead of the ~1100 the
+    full history holds — present, named, green, and covering a twelfth of what
+    it claims. The workflow now asks for full history; this test makes a
+    regression fail loudly instead of quietly reducing coverage.
+    """
+    revisions = _git("rev-list", "--all").split()
+    assert len(revisions) > 1, \
+        "only %d revision(s) reachable; the history gate cannot see past the tip" % len(revisions)
+    blobs = _history_text_blobs()
+    unique = {sha for sha, _, _ in blobs}
+    assert len(unique) > len(_tracked_files()), (
+        "the history scan saw %d unique blob(s) while the tree has %d file(s): this looks "
+        "like a shallow checkout, so the gate is only covering the tip"
+        % (len(unique), len(_tracked_files()))
+    )
+
+
 def test_commit_identities_are_not_personal_mailboxes():
     """Commits are published; the author/committer address must be the noreply one.
 
