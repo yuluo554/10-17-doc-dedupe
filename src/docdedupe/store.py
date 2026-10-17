@@ -506,3 +506,112 @@ def count_pairs(conn: sqlite3.Connection, *, min_jaccard: float = 0.0) -> int:
             "SELECT COUNT(*) FROM pairs WHERE jaccard >= ?", (float(min_jaccard),)
         ).fetchone()[0]
     )
+
+
+# ---------------------------------------------------------------------------
+# Clustering inputs
+# ---------------------------------------------------------------------------
+
+
+def cluster_document_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    """Every ``ok`` document, in ``path_norm`` order.
+
+    ``norm_chars`` is computed by SQLite (``length()`` counts characters, not
+    bytes) so the caller does not have to load the normalized text just to know
+    how long it is. Ordering by ``path_norm`` is the determinism guarantee:
+    cluster members and keep tie-breaks are derived from this order.
+    """
+    return conn.execute(
+        "SELECT id, path_abs, path_norm, ext, text_sha256, norm_sha256, mtime_ns, "
+        "       length(norm_text) AS norm_chars "
+        "FROM documents WHERE extract_status = ? "
+        "ORDER BY path_norm",
+        (STATUS_OK,),
+    ).fetchall()
+
+
+def document_texts(
+    conn: sqlite3.Connection, doc_ids: List[int]
+) -> Dict[int, str]:
+    """Extracted text for the given ids, keyed by id.
+
+    Only the ids a caller asks for are read: the template test needs raw text,
+    and loading every document's body to classify a handful of pairs would make
+    the report's memory use proportional to the corpus instead of to the
+    candidate set.
+    """
+    if not doc_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in doc_ids)
+    rows = conn.execute(
+        "SELECT id, text FROM documents WHERE id IN (%s)" % placeholders,
+        tuple(int(doc_id) for doc_id in doc_ids),
+    ).fetchall()
+    return {int(row["id"]): str(row["text"]) for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# Clusters
+# ---------------------------------------------------------------------------
+
+
+def replace_clusters(conn: sqlite3.Connection, clusters: List[tuple], built_at: str) -> None:
+    """Replace the whole cluster tables with one clustering result.
+
+    ``clusters`` is derived state exactly like ``pairs``: a cluster that no
+    longer exists must disappear, otherwise the review page keeps offering a
+    quarantine for a duplicate that was fixed. ``built_at`` records *when* the
+    clustering ran and never participates in a comparison.
+
+    ``clusters`` carries ``(cluster_id, tier, keep_id, reason, scores_json,
+    member_ids)``.
+    """
+    conn.execute("DELETE FROM cluster_members")
+    conn.execute("DELETE FROM clusters")
+    if not clusters:
+        return
+    conn.executemany(
+        "INSERT INTO clusters (cluster_id, tier, keep_id, reason, scores_json, built_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (
+                str(cluster_id),
+                str(tier),
+                None if keep_id is None else int(keep_id),
+                str(reason),
+                str(scores_payload),
+                built_at,
+            )
+            for cluster_id, tier, keep_id, reason, scores_payload, _ in clusters
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO cluster_members (cluster_id, doc_id) VALUES (?, ?)",
+        [
+            (str(cluster_id), int(doc_id))
+            for cluster_id, _, _, _, _, member_ids in clusters
+            for doc_id in member_ids
+        ],
+    )
+
+
+def cluster_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    """Stored clusters joined to their member documents, in a stable order.
+
+    Members are returned one row per member so the caller can rebuild the
+    ordered member list; ordering is ``(tier rank, first member path, doc path)``
+    which is the same order :mod:`docdedupe.cluster` emits, so a report built
+    from the table matches one built from a fresh clustering.
+    """
+    return conn.execute(
+        "SELECT c.cluster_id, c.tier, c.keep_id, c.reason, c.scores_json, "
+        "       m.doc_id, d.path_norm, d.path_abs "
+        "FROM clusters AS c "
+        "JOIN cluster_members AS m ON m.cluster_id = c.cluster_id "
+        "JOIN documents AS d ON d.id = m.doc_id "
+        "ORDER BY c.cluster_id, d.path_norm"
+    ).fetchall()
+
+
+def count_clusters(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0])

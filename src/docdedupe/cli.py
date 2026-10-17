@@ -11,10 +11,13 @@ Exit codes are a public contract and are locked by tests:
       requested command yet
 ====  ==================================================================
 
-Code 3 is temporary scaffolding: each command is retired from
-``STAGE_NOT_READY`` as its module lands, and the constant is deleted once the
-last command is implemented. Retiring a command means editing this table, the
-dispatch below, the documentation, and the tests in the same commit.
+Code 1 is a *successful* run with findings, not a failure: ``report`` exits 1
+when it wrote a non-empty report, because "there are duplicates" is exactly the
+answer the user asked for. Code 3 is temporary scaffolding: each command is
+retired from ``STAGE_NOT_READY`` as its module lands, and the constant is
+deleted once the last command is implemented. Retiring a command means editing
+this table, the dispatch below, the documentation, and the tests in the same
+commit.
 """
 
 from __future__ import annotations
@@ -38,7 +41,6 @@ EXIT_NOT_READY = 3
 # Commands that are declared in the interface but not implemented yet. Each entry
 # maps the command name to the milestone that will implement it.
 STAGE_NOT_READY = {
-    "report": "M3",
     "serve": "M4",
     "quarantine": "M5",
     "undo": "M5",
@@ -132,6 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("exact", "near", "template"),
         help="only include the given tier (repeatable)",
     )
+    # Same SUPPRESS trick as ``scan``: without a subcommand-level --db the
+    # top-level value has to survive parsing.
+    p_report.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        metavar="PATH",
+        help="index database path (default: ./.dedupe-cache/index.db)",
+    )
 
     p_serve = sub.add_parser(
         "serve",
@@ -220,6 +230,26 @@ def _validate_serve_host(host: str) -> str:
 
 def _emit(stream, text: str) -> None:
     stream.write(text + "\n")
+
+
+def _write_payload(stream, payload: str) -> None:
+    """Write generated output without platform newline translation.
+
+    A report is compared byte-for-byte across runs and machines
+    (``tests/test_report.py``), so ``\\n`` must stay ``\\n`` even when stdout is
+    a pipe on Windows, where text mode would turn every line ending into
+    ``\\r\\n``. When the stream exposes a binary buffer (a real stdout/stderr) the
+    payload is encoded and written there; a test that substitutes a text stream
+    has no buffer and gets the plain ``write``, which is what it reads back.
+    """
+    buffer = getattr(stream, "buffer", None)
+    encoding = (getattr(stream, "encoding", None) or "utf-8").lower()
+    if buffer is not None and "utf" in encoding:
+        stream.flush()
+        buffer.write(payload.encode("utf-8"))
+        buffer.flush()
+        return
+    stream.write(payload)
 
 
 def cmd_version(args: argparse.Namespace, out, err) -> int:
@@ -479,6 +509,98 @@ def _not_ready(command: str, milestone: str, err) -> int:
     return EXIT_NOT_READY
 
 
+def _default_report_db() -> str:
+    """Where ``report`` looks for an index when ``--db`` is not given.
+
+    ``scan`` puts its index under the first root; ``report`` has no root, so it
+    falls back to the cache directory of the current working directory — the
+    same place ``scan .`` would have written it.
+    """
+    return os.path.join(os.getcwd(), ".dedupe-cache", "index.db")
+
+
+def cmd_report(args: argparse.Namespace, out, err) -> int:
+    """Cluster the index and emit a md/csv/json report.
+
+    Exit codes (the public contract): 1 when the report contains clusters, 0
+    when it contains none, 2 when there is no usable index. Findings are the
+    normal outcome of a successful run, so they get their own code rather than
+    being folded into success — a script can then ask "are there duplicates?"
+    without parsing the report body.
+    """
+    from . import cluster as cluster_mod
+    from . import report as report_mod
+    from . import store
+
+    db_path = getattr(args, "db", None) or _default_report_db()
+    if not os.path.isfile(db_path):
+        _emit(
+            err,
+            "error: no index at %s; run 'doc-dedupe scan <dir>' first or pass --db"
+            % db_path,
+        )
+        return EXIT_USAGE
+
+    try:
+        conn = store.connect(db_path)
+    except (SchemaVersionError, OSError) as exc:
+        _emit(err, "error: cannot open the index database: %s" % exc)
+        return EXIT_USAGE
+
+    try:
+        if store.count_documents(conn) == 0:
+            _emit(err, "error: the index contains no documents; run 'scan' first")
+            return EXIT_USAGE
+        clusters = cluster_mod.clusters_from_index(conn)
+
+        wanted = tuple(args.tier or ())
+        visible = (
+            [item for item in clusters if item.tier in wanted] if wanted else clusters
+        )
+
+        # The table is written from the *unfiltered* clustering: --tier changes
+        # what this report shows, not what the index says. Writing the filtered
+        # set would make the next `serve` or `quarantine` run silently disagree
+        # with the report the user just read.
+        built_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        store.replace_clusters(
+            conn,
+            [
+                (
+                    item.cluster_id,
+                    item.tier,
+                    item.keep_id,
+                    item.reason,
+                    cluster_mod.scores_json(item.scores),
+                    item.member_ids,
+                )
+                for item in clusters
+            ],
+            built_at,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    report_value = report_mod.build_report(visible)
+    payload = report_mod.render(report_value, args.format)
+
+    if args.out:
+        parent = os.path.dirname(os.path.abspath(args.out))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8", newline="") as handle:
+            handle.write(payload)
+        _emit(out, "wrote %s report to %s" % (args.format, args.out))
+    else:
+        _write_payload(out, payload)
+
+    if not report_value.has_findings:
+        _emit(err, "no duplicate clusters found")
+        return EXIT_OK
+    return EXIT_FINDINGS
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     _ensure_utf8_stdio()
     parser = build_parser()
@@ -499,6 +621,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == "scan":
         return cmd_scan(args, out, err)
+
+    if args.command == "report":
+        return cmd_report(args, out, err)
 
     # Argument-level guarantees are enforced here, on the real dispatch path, and
     # not only inside the eventual command implementation: a bind address is a

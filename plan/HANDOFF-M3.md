@@ -94,15 +94,20 @@ M0/M1 的坑仍然有效，新增：
 
 ## 五、DoD checklist（M3 验收，逐项打勾）
 
-- [ ] 三档标签与真值逐组一致；`template` 不与 `near` 混同（G201–G203 必须落 `template`）
-- [ ] 每簇 `reason` 非空且含至少两个判定维度（禁止裸分数）
-- [ ] 打分公式只在 `cluster.py` 一处；报告层零判定（AST 守门）
-- [ ] md / csv / json 三轨内容一致（同一渲染源）+ JSON 逐字节可复现
-- [ ] 报告无时间戳、无随机序
-- [ ] `report` 从 `STAGE_NOT_READY` 退役，退出码契约同步更新
-- [ ] B4 基准 + 探活（注入缺陷后必须报未达标）
-- [ ] 双解释器（3.8 / 3.12）全量 pytest 绿
-- [ ] `plan/00` 台账对应行翻 ✅、`plan/05` M3 DoD 勾选、`plan/HANDOFF-M4.md` 落盘
+- [x] 三档标签与真值逐组一致；`template` 不与 `near` 混同（G201–G203 必须落 `template`）
+- [x] 每簇 `reason` 非空且含至少两个判定维度（禁止裸分数）
+- [x] 打分公式只在 `cluster.py` 一处；报告层零判定（AST 守门）
+- [x] md / csv / json 三轨内容一致（同一渲染源）+ JSON 逐字节可复现
+- [x] 报告无时间戳、无随机序
+- [x] `report` 从 `STAGE_NOT_READY` 退役，退出码契约同步更新
+- [x] B4 基准 + 探活（注入缺陷后必须报未达标）
+- [x] 双解释器（3.8 / 3.12）全量 pytest 绿
+- [x] `plan/00` 台账对应行翻 ✅、`plan/05` M3 DoD 勾选、`plan/HANDOFF-M4.md` 落盘
+
+**M3 收尾实测（2026-10-17）**：B4 逐组点名 **27/27 = 100%**（near 20 / exact 4 / template 3）；
+跨真值组污染 0；27 簇 / 84 份文件；1000 份规模聚类 0.42s；探活三注入均 FAIL；
+3.8 与 3.12 各 298 项全绿；`SAMPLES_FROZEN_OK`；B3 回归仍 20/20。
+详见 `plan/05` §M3 实测记录与 `plan/HANDOFF-M4.md`。
 
 ## 六、关键命令速查
 

@@ -7,6 +7,7 @@ code claimed by the table gets at least one assertion that really exercises it.
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 
@@ -108,9 +109,7 @@ def test_unknown_flag_exits_usage():
 def test_staged_commands_exit_three_with_milestone_hint(command):
     """A not-yet-implemented command must not pretend to succeed."""
     argv = [command]
-    if command == "report":
-        argv += ["--format", "json"]
-    elif command == "quarantine":
+    if command == "quarantine":
         argv += ["--cluster", "c1", "--keep", "a", "--move", "b", "--confirm"]
     elif command == "undo":
         argv += ["--batch", "b1", "--confirm"]
@@ -126,6 +125,11 @@ def test_staged_commands_exit_three_with_milestone_hint(command):
 def test_scan_is_retired_from_the_staging_table():
     """M1 landed scan; leaving it staged would make the command look unimplemented."""
     assert "scan" not in STAGE_NOT_READY
+
+
+def test_report_is_retired_from_the_staging_table():
+    """M3 landed report; a staged entry would send users to a M3 hint forever."""
+    assert "report" not in STAGE_NOT_READY
 
 
 def test_staged_commands_all_declared_in_parser():
@@ -305,3 +309,163 @@ def test_default_db_path_ignores_a_foreign_top_level_value_for_other_commands():
     assert args.db == "sub.db"
     args = parser.parse_args(["--db", "top.db", "scan", "."])
     assert args.db == "top.db"
+
+
+# ---------------------------------------------------------------------------
+# report
+# ---------------------------------------------------------------------------
+
+
+def _duplicate_tree(root):
+    """Two identical files plus one unrelated file.
+
+    The pair must be long enough to clear ``min_text_chars`` and to yield
+    shingles; the unrelated file keeps the report from being trivially right.
+    """
+    root.mkdir(parents=True)
+    body = "示例项目甲 正文。\n" + "本段用于构成足够长的正文内容。" * 12 + "\n"
+    (root / "方案_a.txt").write_text(body, encoding="utf-8")
+    (root / "方案_b.txt").write_text(body, encoding="utf-8")
+    (root / "无关.md").write_text("完全不同的另一份文档。" * 20, encoding="utf-8")
+    return root
+
+
+def _scan(root, db):
+    code, out, err = run(["scan", str(root), "--db", str(db)])
+    assert code == EXIT_OK, err
+    return db
+
+
+def test_report_exits_one_when_duplicates_are_found(tmp_path):
+    """Findings are the answer, not a failure — but they get their own code."""
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    code, out, err = run(["report", "--db", str(db), "--format", "json"])
+    assert code == 1
+    payload = json.loads(out)
+    assert payload["summary"]["clusters"] >= 1
+    assert payload["clusters"][0]["tier"] == "exact"
+
+
+def test_report_exits_zero_when_nothing_is_duplicated(tmp_path):
+    root = tmp_path / "docs"
+    root.mkdir()
+    (root / "a.txt").write_text("示例项目甲。\n" + "第一份文档的正文。" * 30, encoding="utf-8")
+    (root / "b.txt").write_text("示例项目乙。\n" + "另一份完全无关的内容。" * 30, encoding="utf-8")
+    db = _scan(root, tmp_path / "i.db")
+
+    code, out, err = run(["report", "--db", str(db), "--format", "json"])
+    assert code == EXIT_OK
+    assert json.loads(out)["clusters"] == []
+    assert "no duplicate clusters found" in err
+
+
+def test_report_exits_usage_when_the_index_is_missing(tmp_path):
+    code, out, err = run(["report", "--db", str(tmp_path / "nope.db")])
+    assert code == EXIT_USAGE
+    assert "no index" in err
+    assert out == ""
+
+
+def test_report_exits_usage_on_an_empty_index(tmp_path):
+    from docdedupe import store
+
+    db = tmp_path / "empty.db"
+    conn = store.connect(str(db))
+    conn.close()
+
+    code, out, err = run(["report", "--db", str(db)])
+    assert code == EXIT_USAGE
+    assert "no documents" in err
+
+
+def test_report_writes_the_requested_format_to_a_file(tmp_path):
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    target = tmp_path / "out" / "report.csv"
+
+    code, out, err = run(["report", "--db", str(db), "--format", "csv", "--out", str(target)])
+    assert code == 1
+    assert target.is_file()
+    assert "wrote csv report" in out
+    header = target.read_text(encoding="utf-8").splitlines()[0]
+    assert header.startswith("cluster_id,tier,keep,member_path")
+
+
+def test_report_persists_clusters_to_the_index(tmp_path):
+    from docdedupe import store
+
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    code, _, _ = run(["report", "--db", str(db), "--format", "json"])
+    assert code == 1
+
+    conn = store.connect(str(db))
+    try:
+        assert store.count_clusters(conn) >= 1
+        stored = {str(row["tier"]) for row in store.cluster_rows(conn)}
+        assert stored == {"exact"}
+    finally:
+        conn.close()
+
+
+def test_tier_filter_changes_the_report_but_not_the_index(tmp_path):
+    """``--tier`` is a view; writing the filtered set would corrupt later steps."""
+    from docdedupe import store
+
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    code, out, _ = run(["report", "--db", str(db), "--format", "json", "--tier", "near"])
+    # Only an exact cluster exists, so the near view is empty...
+    assert code == EXIT_OK
+    assert json.loads(out)["clusters"] == []
+
+    # ...but the index still holds the full clustering.
+    conn = store.connect(str(db))
+    try:
+        assert store.count_clusters(conn) >= 1
+    finally:
+        conn.close()
+
+
+def test_report_output_is_byte_identical_across_runs(tmp_path):
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    assert run(["report", "--db", str(db), "--format", "json", "--out", str(first)])[0] == 1
+    assert run(["report", "--db", str(db), "--format", "json", "--out", str(second)])[0] == 1
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_report_stdout_payload_is_not_crlf_translated(tmp_path):
+    """A piped report must be the same bytes on every platform.
+
+    Windows text mode would turn each ``\\n`` into ``\\r\\n``. The renderer's own
+    bytes are the contract, so the CLI writes through the binary buffer.
+    """
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    target = tmp_path / "file.json"
+    assert run(["report", "--db", str(db), "--format", "json", "--out", str(target)])[0] == 1
+
+    payload = target.read_bytes()
+    assert b"\r\n" not in payload
+    assert run(["report", "--db", str(db), "--format", "json"])[0] == 1
+
+
+def test_report_accepts_the_top_level_db_flag(tmp_path):
+    """`--db` before the subcommand must reach report, like it does for scan."""
+    db = _scan(_duplicate_tree(tmp_path / "docs"), tmp_path / "i.db")
+    code, out, _ = run(["--db", str(db), "report", "--format", "json"])
+    assert code == 1
+    assert json.loads(out)["clusters"]
+
+
+def test_report_defaults_to_the_cache_directory_under_the_cwd(tmp_path, monkeypatch):
+    from docdedupe import cli as cli_mod
+
+    root = _duplicate_tree(tmp_path / "docs")
+    db_dir = tmp_path / ".dedupe-cache"
+    db_dir.mkdir()
+    _scan(root, db_dir / "index.db")
+
+    monkeypatch.chdir(tmp_path)
+    code, out, err = run(["report", "--format", "json"])
+    assert code == 1, err
+    assert json.loads(out)["clusters"]
