@@ -249,6 +249,7 @@ Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
 [PASS] RELEASE_ASSETS       2 asset(s): doc_dedupe-0.1.0-py3-none-any.whl, doc_dedupe-0.1.0.tar.gz
 [PASS] CI_GREEN             2 successful run(s) on 5958987fa126, covering main, v0.1.0
 [PASS] PLAN00               all 3 M6 status row(s) are flipped
+[PASS] README_ARTIFACTS     every artifact the README names is shipped: doc_dedupe-0.1.0-py3-none-any.whl, doc_dedupe-0.1.0.tar.gz
 [PASS] README_LICENSE       LICENSE exists and the README names it
 [PASS] README_EXIT_CODES    report/quarantine/undo/reports each document exit code 1 on their command line
 [PASS] LEAKS                no machine-specific path or QQ mailbox in 117 scanned file(s)
@@ -257,9 +258,10 @@ Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
 [PASS] REMOTE               remote configured: origin
 [PASS] REMOTE_TAG           the remote tag matches the local one (5958987fa126)
 
-0 FAIL / 2 WARN / 18 PASS
+0 FAIL / 2 WARN / 19 PASS
 ```
 
+这一段是**照抄实跑输出**（`README_ARTIFACTS` 那条是 §2.5 新增的门）。
 两条 WARN 都是设计如此，不是待办：`TAG_COMMIT` 因为没有把提交哈希写进 tag 树里的
 facts 块（写进去会改变那棵树），`DOC_UNCHANGED` 因为本节就是 tag 后的追加。
 "0 FAIL"是硬要求，"0 WARN"不是。
