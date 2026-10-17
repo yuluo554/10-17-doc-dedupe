@@ -32,6 +32,8 @@ from docdedupe import store
 from docdedupe.config import DEFAULT_SETTINGS
 from docdedupe.recall import RecallReport, evaluate_recall
 
+import bench_common
+
 # The recall floor lives in data/README.md 4.7. It is repeated here as the
 # benchmark's own gate because a benchmark must be able to fail; the test suite
 # asserts the same number, so a change to one without the other is visible.
@@ -217,6 +219,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     samples = Path(args.samples).resolve()
     conn = store.connect(args.db)
     try:
+        hint = bench_common.corpus_index_mismatch_hint(conn, samples)
+        if hint:
+            print("HINT: %s" % hint)
         report = run_benchmark(
             conn,
             samples,

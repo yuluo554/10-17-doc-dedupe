@@ -64,6 +64,10 @@ tmp/
 *.bak
 ~$*
 
+# Release artifacts: kept locally and attached to the GitHub Release, not committed.
+# plan/RELEASE-M6.md records their sha256 so a downloaded copy can be re-verified.
+/release/
+
 # IDE / OS
 .idea/
 .vscode/

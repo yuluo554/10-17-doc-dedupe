@@ -125,35 +125,148 @@ def test_sample_bytes_are_not_line_ending_converted():
     assert "data/samples/** -text" in text
 
 
+# A path segment that stands in for somebody's real one is not a leak: an
+# elided `C:\Users\...` or an explicit `C:/Users/<user>/` is exactly what a
+# published repository is supposed to contain.
+_PLACEHOLDER_SEGMENTS = {"...", "..", ".", "<user>", "<you>", "<name>", "user", "username", "you"}
+
+# Machine-specific evidence. The captured group is the path segment that must
+# not name a real account, machine or work directory. Each pattern is written so
+# that it cannot match its own source text: the literal in this file always has
+# a character-class bracket where the pattern expects a path separator.
+_MACHINE_PATH_PATTERNS = (
+    (re.compile(r"(?:[A-Za-z]:[\\/]|/c/|/)(?:Users|users|home)[\\/]([A-Za-z0-9_.-]+)[\\/]"),
+     "developer home directory"),
+    (re.compile(r"[A-Za-z]:[\\/]ProgramData[\\/]([A-Za-z0-9_.-]+)[\\/]"),
+     "Windows per-machine data root"),
+    (re.compile(r"AppData[\\/]Local[\\/]Temp[\\/]([A-Za-z0-9_.-]+)", re.I),
+     "local temp directory"),
+    (re.compile(r"\d{5,12}@qq[.]com", re.I), "QQ mailbox"),
+)
+
+
+def _machine_path_offenders(text):
+    """Return the machine-specific paths in ``text`` (placeholders excluded)."""
+    found = []
+    for pattern, label in _MACHINE_PATH_PATTERNS:
+        for match in pattern.finditer(text):
+            groups = [g for g in match.groups() if g]
+            if groups and groups[0].lower() in _PLACEHOLDER_SEGMENTS:
+                continue
+            found.append("%s (%s)" % (match.group(0), label))
+    return found
+
+
+def _git(*args, text=True):
+    import subprocess
+
+    return subprocess.run(
+        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+    ).stdout
+
+
+def _tracked_files():
+    out = _git("-c", "core.quotepath=false", "ls-files", "-z")
+    return [name for name in out.split("\0") if name]
+
+
+def _history_text_blobs():
+    """Every blob reachable from every ref, as (sha, first-path, bytes).
+
+    History is scanned in addition to the working tree: a path that was committed
+    once stays published in the packed objects even after a later commit removes
+    it, so "the current tree is clean" is not the claim the repository makes.
+    """
+    import subprocess
+
+    paths_by_sha = {}
+    for rev in _git("rev-list", "--all").split():
+        for entry in _git("-c", "core.quotepath=false", "ls-tree", "-r", "-z", rev).split("\0"):
+            if not entry or "\t" not in entry:
+                continue
+            meta, path = entry.split("\t", 1)
+            parts = meta.split()
+            if len(parts) == 3 and parts[1] == "blob":
+                paths_by_sha.setdefault(parts[2], path)
+
+    if not paths_by_sha:
+        return []
+
+    stdin = "".join("%s\n" % sha for sha in paths_by_sha)
+    proc = subprocess.run(
+        ["git", "cat-file", "--batch"], cwd=REPO_ROOT, input=stdin.encode("utf-8"),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    data = proc.stdout
+    blobs = []
+    pos = 0
+    while pos < len(data):
+        newline = data.index(b"\n", pos)
+        header = data[pos:newline].decode("utf-8", "replace").split()
+        pos = newline + 1
+        if len(header) != 3:
+            break
+        sha, kind, size = header
+        size = int(size)
+        body = data[pos:pos + size]
+        pos += size + 1  # trailing newline after each object
+        if kind == "blob":
+            blobs.append((sha, paths_by_sha.get(sha, "?"), body))
+    return blobs
+
+
 def test_no_machine_absolute_paths_in_tracked_sources():
     """The repository is published; a developer's checkout path must not leak.
 
     Scan results and index paths are runtime output (``.gitignore``d). This test
-    covers the files that are actually committed.
+    covers *every* tracked file, not only the ones that happen to carry a
+    source-code suffix, and it reads bytes so a path hidden in a binary-looking
+    artefact (an HTML sample, a screenshot sidecar) counts too.
     """
-    import re
-
-    # `D:\ProgramData\...` style paths and the POSIX equivalents of a user home.
-    patterns = (
-        re.compile(r"[A-Za-z]:\\\\?(?:ProgramData|Users)\\\\", re.I),
-        re.compile(r"/home/[a-z0-9_.-]+/", re.I),
-        re.compile(r"/Users/[A-Za-z0-9_.-]+/"),
-    )
-    roots = (REPO_ROOT / "src", REPO_ROOT / "tools", REPO_ROOT / "tests", REPO_ROOT / "plan")
     offenders = []
-    for root in roots:
-        if not root.is_dir():
+    scanned = 0
+    for rel in _tracked_files():
+        path = REPO_ROOT / rel
+        if not path.is_file():
             continue
-        for path in root.rglob("*"):
-            if not path.is_file() or path.suffix not in {".py", ".md", ".json", ".toml"}:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            for pattern in patterns:
-                for match in pattern.finditer(text):
-                    offenders.append("%s: %r" % (path.relative_to(REPO_ROOT), match.group(0)))
-    assert offenders == [], "absolute developer path found: %s" % offenders
+        raw = path.read_bytes()
+        if b"\0" in raw[:8192]:  # binary (PDF/DOCX/PNG): text patterns do not apply
+            continue
+        scanned += 1
+        for hit in _machine_path_offenders(raw.decode("utf-8", "replace")):
+            offenders.append("%s: %s" % (rel, hit))
+    assert scanned > 100, "tracked-file scan looked at only %d files; guard is vacuous" % scanned
+    assert offenders == [], "machine-specific path in a tracked file: %s" % offenders
+
+
+def test_no_machine_absolute_paths_in_git_history():
+    """A scrubbed working tree is not enough: blobs already packed stay shipped.
+
+    The check is byte-level over every reachable blob, so it also covers commits
+    that were later corrected in place.
+    """
+    offenders = []
+    for sha, rel, body in _history_text_blobs():
+        if b"\0" in body[:8192]:
+            continue
+        for hit in _machine_path_offenders(body.decode("utf-8", "replace")):
+            offenders.append("%s (%s): %s" % (rel, sha[:12], hit))
+    assert offenders == [], "machine-specific path in git history: %s" % offenders
+
+
+def test_commit_identities_are_not_personal_mailboxes():
+    """Commits are published; the author/committer address must be the noreply one."""
+    identities = set()
+    for line in _git("log", "--all", "--format=%an|%ae|%cn|%ce").splitlines():
+        identities.add(line)
+    assert identities, "no commits found; the identity guard would be vacuous"
+    for line in sorted(identities):
+        for addr in line.split("|")[1::2]:
+            addr = addr.strip().lower()
+            assert addr.endswith("@users.noreply.github.com"), \
+                "commit identity is not a GitHub noreply address: %r" % line
+            assert "@example.invalid" not in addr, "personal mailbox in commit identity: %r" % line
 
 
 def test_plan_documents_declare_the_same_module_count():

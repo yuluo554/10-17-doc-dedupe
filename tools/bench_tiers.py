@@ -41,6 +41,8 @@ from docdedupe import cluster as cluster_mod
 from docdedupe import store
 from docdedupe.config import DEFAULT_SETTINGS, Settings
 
+import bench_common
+
 # The two gates are defined in plan/05 (M3 DoD) and data/README.md 4.5. Repeated
 # here as the benchmark's own numbers so the tool can fail; the test suite
 # asserts the same values, so changing one without the other is visible.
@@ -445,6 +447,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     conn = store.connect(args.db)
     try:
+        hint = bench_common.corpus_index_mismatch_hint(conn, samples)
+        if hint:
+            print("HINT: %s" % hint)
         report = run_benchmark(
             conn,
             samples,

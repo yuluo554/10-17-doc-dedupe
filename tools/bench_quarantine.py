@@ -52,6 +52,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from docdedupe import cli, quarantine, store
 
+import bench_common
+
 SCENARIOS = (
     "round-trip",
     "interrupted-resume",
@@ -811,6 +813,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not samples.is_dir():
         print("B6 FAIL: no corpus at %s" % samples)
         return 1
+    hint = bench_common.corpus_truth_hint(samples)
+    if hint:
+        # Advisory only: B6 does not need a manifest and reports its own failures,
+        # but when a manifest is present and nothing it names is on disk, the
+        # scenarios below cannot mean what they look like they mean.
+        print("HINT: %s" % hint)
 
     with contextlib.ExitStack() as stack:
         if args.work:

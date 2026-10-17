@@ -61,6 +61,8 @@ from docdedupe import normalize as normalize_mod
 from docdedupe import store
 from docdedupe.config import DEFAULT_SETTINGS, Settings
 
+import bench_common
+
 # One expectation per manifest ``variant`` label. Every label the manifest can
 # produce must appear here: a new variant silently falling through to "whatever
 # the engine said" is exactly the kind of hole B5 exists to close.
@@ -606,6 +608,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     samples = Path(args.samples).resolve()
     conn = store.connect(args.db)
     try:
+        hint = bench_common.corpus_index_mismatch_hint(conn, samples)
+        if hint:
+            print("HINT: %s" % hint)
         report = run_benchmark(conn, samples, inject_summary=args.inject_summary)
     finally:
         conn.close()
