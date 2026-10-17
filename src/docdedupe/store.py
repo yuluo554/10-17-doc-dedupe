@@ -70,7 +70,11 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     simhash       INTEGER NOT NULL,
     minhash_json  TEXT    NOT NULL,
     shingle_count INTEGER NOT NULL,
-    algo_version  INTEGER NOT NULL
+    algo_version  INTEGER NOT NULL,
+    -- Sorted 64-bit shingle hashes, big-endian, 8 bytes each. Storing them is
+    -- what lets a pair be scored exactly from the index instead of from the
+    -- sampled MinHash estimate (see fingerprint.SCORE_KIND_EXACT).
+    shingle_hashes BLOB   NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pairs (
@@ -79,6 +83,9 @@ CREATE TABLE IF NOT EXISTS pairs (
     jaccard    REAL    NOT NULL,
     hamming    INTEGER NOT NULL,
     score_kind TEXT    NOT NULL,
+    -- The MinHash estimate is kept beside the exact score so a report can show
+    -- both, and so the two can be audited against each other.
+    jaccard_estimate REAL NOT NULL DEFAULT 0.0,
     PRIMARY KEY (a_id, b_id),
     CHECK (a_id < b_id)
 );
@@ -335,3 +342,167 @@ def skipped_documents(conn: sqlite3.Connection) -> List[sqlite3.Row]:
 def touch_document(conn: sqlite3.Connection, doc_id: int, scanned_at: str) -> None:
     """Record that a cached row was seen again without changing its content."""
     conn.execute("UPDATE documents SET scanned_at = ? WHERE id = ?", (scanned_at, doc_id))
+
+
+# ---------------------------------------------------------------------------
+# Fingerprints
+# ---------------------------------------------------------------------------
+
+_INT64_SIGN = 1 << 63
+_INT64_MOD = 1 << 64
+
+
+def simhash_to_signed(value: int) -> int:
+    """Map an unsigned 64-bit SimHash onto SQLite's signed INTEGER range.
+
+    SQLite's INTEGER is signed, so a fingerprint with the top bit set would
+    raise ``OverflowError`` on insert. Two's complement is lossless and keeps
+    the value a single integer column (comparable, indexable) instead of a hex
+    string.
+    """
+    value = int(value) & (_INT64_MOD - 1)
+    return value - _INT64_MOD if value >= _INT64_SIGN else value
+
+
+def simhash_from_signed(value: int) -> int:
+    """Inverse of :func:`simhash_to_signed`."""
+    return int(value) & (_INT64_MOD - 1)
+
+
+def upsert_fingerprint(
+    conn: sqlite3.Connection,
+    *,
+    doc_id: int,
+    simhash: int,
+    minhash_json: str,
+    shingle_count: int,
+    algo_version: int,
+    shingle_hashes: bytes,
+) -> None:
+    """Insert or replace the fingerprint row for one document.
+
+    Replacement rather than "insert if missing": a document whose cache key
+    changed was re-normalized, and the stored fingerprint has to describe the
+    text that is stored now. Keeping the old one would silently score the new
+    text with the old shingles.
+    """
+    conn.execute(
+        "INSERT INTO fingerprints (doc_id, simhash, minhash_json, shingle_count, "
+        "algo_version, shingle_hashes) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(doc_id) DO UPDATE SET simhash = excluded.simhash, "
+        "minhash_json = excluded.minhash_json, "
+        "shingle_count = excluded.shingle_count, "
+        "algo_version = excluded.algo_version, "
+        "shingle_hashes = excluded.shingle_hashes",
+        (
+            doc_id,
+            simhash_to_signed(simhash),
+            minhash_json,
+            int(shingle_count),
+            int(algo_version),
+            shingle_hashes,
+        ),
+    )
+
+
+def fingerprint_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    """Every fingerprint joined to its usable document, ordered by ``path_norm``.
+
+    ``ORDER BY path_norm`` is the determinism guarantee for recall: candidate
+    pairs are enumerated from this order, so two runs produce the same pair
+    list rather than one that follows SQLite's row order.
+    """
+    return conn.execute(
+        "SELECT f.doc_id, f.simhash, f.minhash_json, f.shingle_count, "
+        "       f.algo_version, f.shingle_hashes, d.norm_text, d.path_norm "
+        "FROM fingerprints AS f JOIN documents AS d ON d.id = f.doc_id "
+        "WHERE d.extract_status = ? "
+        "ORDER BY d.path_norm",
+        (STATUS_OK,),
+    ).fetchall()
+
+
+def delete_fingerprints_for_documents(
+    conn: sqlite3.Connection, doc_ids: List[int]
+) -> None:
+    if not doc_ids:
+        return
+    placeholders = ", ".join("?" for _ in doc_ids)
+    conn.execute(
+        "DELETE FROM fingerprints WHERE doc_id IN (%s)" % placeholders,
+        tuple(int(doc_id) for doc_id in doc_ids),
+    )
+
+
+def count_fingerprints(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM fingerprints").fetchone()[0])
+
+
+def stale_fingerprint_documents(conn: sqlite3.Connection, algo_version: int) -> List[int]:
+    """Documents that are ``ok`` but have no fingerprint at the current version.
+
+    A cache hit reuses stored text without touching the fingerprint tables, so a
+    row written by an older algorithm would otherwise never be recomputed. The
+    scan calls this after the walk and fingerprints exactly these rows.
+    """
+    rows = conn.execute(
+        "SELECT d.id FROM documents AS d "
+        "LEFT JOIN fingerprints AS f ON f.doc_id = d.id "
+        "WHERE d.extract_status = ? "
+        "  AND (f.doc_id IS NULL OR f.algo_version != ?) "
+        "ORDER BY d.path_norm",
+        (STATUS_OK, int(algo_version)),
+    ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Pairs
+# ---------------------------------------------------------------------------
+
+
+def replace_pairs(
+    conn: sqlite3.Connection, candidates: List[tuple]
+) -> None:
+    """Replace the whole ``pairs`` table with one recall result.
+
+    Wholesale replacement, not merge: ``pairs`` is derived state. A pair that is
+    no longer a candidate must disappear, otherwise a document that was edited
+    keeps a stale edge and the report shows a duplicate that no longer exists.
+
+    ``candidates`` carries ``(a_id, b_id, jaccard, jaccard_estimate, hamming,
+    score_kind)``; ``a_id < b_id`` is enforced by the schema.
+    """
+    conn.execute("DELETE FROM pairs")
+    if not candidates:
+        return
+    conn.executemany(
+        "INSERT INTO pairs (a_id, b_id, jaccard, hamming, score_kind, "
+        "jaccard_estimate) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (
+                int(a_id),
+                int(b_id),
+                float(jaccard),
+                int(hamming),
+                str(score_kind),
+                float(jaccard_estimate),
+            )
+            for a_id, b_id, jaccard, jaccard_estimate, hamming, score_kind in candidates
+        ],
+    )
+
+
+def pair_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    return conn.execute(
+        "SELECT a_id, b_id, jaccard, hamming, score_kind, jaccard_estimate "
+        "FROM pairs ORDER BY a_id, b_id"
+    ).fetchall()
+
+
+def count_pairs(conn: sqlite3.Connection, *, min_jaccard: float = 0.0) -> int:
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM pairs WHERE jaccard >= ?", (float(min_jaccard),)
+        ).fetchone()[0]
+    )

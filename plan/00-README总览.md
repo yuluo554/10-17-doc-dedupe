@@ -18,6 +18,7 @@
 | plan/06-交付对标.md | 评分四栏与招牌动词的证据映射 | ✅ v1（M0） |
 | plan/HANDOFF-M1.md | M1 续接快照（六节） | ✅ M0 收尾落盘 |
 | plan/HANDOFF-M2.md | M2 续接快照 | ✅ M1 收尾落盘 |
+| plan/HANDOFF-M3.md | M3 续接快照 | ✅ M2 收尾落盘 |
 | plan/RELEASE-M6.md | 发布留档三件套落点 | ⬜ 待 M6 |
 | README.md | 对外快速开始 / 退出码 / 隐私 / 文档索引 | ✅ v1（M0） |
 | data/README.md | 依据查证记录 + 数据源可获取性 + 合成与口径纪律 | ✅ v1 |
@@ -49,8 +50,8 @@
 | 跨格式正文抽取（PDF 文本层/DOCX/MD/TXT/HTML） | pypdf 或 pdfplumber（月下载 4000 万）、python-docx（月下载 9500 万）、标准库 | 依赖入包；无外部服务 | 合成集各格式抽取非空；失败态落显式 skipped | ✅ M1 已落：`extract.py` 五格式抽取；`tests/test_extract.py` 逐格式断言；`test_sample_corpus_matches_the_manifest_expectations` 对 101 个样本逐个比对真值 |
 | 无文本层 PDF 显式跳过，不静默当不重复 | 首期不引入 OCR 的边界决策 | 运行时索引字段 `extract_status` | 扫描件样本断言 `skipped:no_text_layer`；报告单独列出 | ✅ M1 已落：2 份无文本层 + 2 份加密 + 3 份不支持格式样本；`scan` 汇总逐条点名 |
 | SQLite 缓存（path+size+mtime → 指纹） | 标准库 sqlite3 | 运行时本地文件 | 二次扫描耗时下降门槛；缓存键变更即失效用例 | ✅ M1 已落：实测 1000 份 3.59s → 0.28s（下降 92.2%）；`test_a_cache_hit_does_not_open_the_file` 用探针证明命中时不读文件；改 mtime 只重抽 1 份 |
-| 中文友好归一（全半角/页眉页脚/页码） | 字符 3-gram 设计（自实现） | 运行时逻辑 | 归一用例集：全半角、跨页页眉、页码噪声 | ⬜ 待 M2 |
-| 64-bit SimHash + MinHash/LSH 召回 | simhash（月下载 25 万）或自实现；datasketch 或手写约百行 | 依赖入包 | 召回基准：人工构造样本召回率 ≥ 90% | ⬜ 待 M2 |
+| 中文友好归一（全半角/页眉页脚/页码） | 字符 3-gram 设计（自实现） | 运行时逻辑 | 归一用例集：全半角、跨页页眉、页码噪声 | ✅ M2 已落：`normalize.py` 五步定序（`STAGE_ORDER` 可断言）；`test_normalize.py` 覆盖全半角/跨页页眉/页码/中英混排/零宽字符；G005 六份跨格式（含 GBK 双胞胎）归一后逐字节一致；"只有一处实现"由静态断言守住 |
+| 64-bit SimHash + MinHash/LSH 召回 | simhash（月下载 25 万）或自实现；datasketch 或手写约百行 | 依赖入包 | 召回基准：人工构造样本召回率 ≥ 90% | ✅ M2 已落：MinHash(128)+LSH(32×4) 召回，精确 Jaccard 判定（`score_kind=exact_jaccard`）；B3 逐组点名 **20/20 = 100%**、negative 零误报；三种缺陷注入均报未达标 |
 | 三档分类（完全重复/近重复/模板族） | 本题设计；模板族源自标书/合同/周报现实 | 运行时逻辑 + 界面标签 | 聚类基准对植入真值 | ⬜ 待 M3 |
 | 可解释保留建议（理由字符串非裸分数） | 本题设计 | 报告与界面均展示 | 每簇断言理由字符串非空且含判定维度 | ⬜ 待 M3 |
 | 双栏差异高亮 + 差异摘要（"仅差 3 段/差一个署名/差一页"） | 本题设计 | `serve` 页面 + `/api/clusters/{id}/diff` | UI 基准：差异段号与摘要对真值 | ⬜ 待 M4 |
@@ -67,7 +68,7 @@
 |---|---|---|
 | M0 计划先行 + 骨架 | plan/00–06、data/README、.gitignore/.gitattributes、pyproject、可运行 CLI 骨架（`--help`/`version`/`selftest`）、SQLite schema、双解释器测试、CI 配置 | ✅ 已完成：`check_topic.py` 无 FAIL；3.8 与 3.12 全量 pytest 绿（本地等价校验，未接远端，CI 待首推验证）；退出码 0/1/2/3 均有断言；首提交身份为 noreply |
 | M1 数据先行 + 扫描层 | 合成样本生成器（改写/截断/换格式/模板族/无文本层/加密 + 负样本）+ 真值 manifest；扫描与格式适配层（忽略规则、缓存、skipped 状态） | ✅ 已完成：`--check` 位级一致；1000 份混合格式扫描 exit 0；二次扫描 3.59s→0.28s（−92.2%）；三种 skipped 落库并点名；双解释器全绿 |
-| M2 指纹与召回 | 归一化（全半角/页眉页脚/页码）+ 字符 3-gram + 64-bit SimHash + MinHash/LSH banding | 召回基准对真值 ≥ 90%（逐组点名）；归一规则单点定义且被基准引用；负样本零误报 |
+| M2 指纹与召回 | 归一化（全半角/页眉页脚/页码）+ 字符 3-gram + 64-bit SimHash + MinHash/LSH banding | ✅ 已完成：B3 逐组点名 20/20 = 100%（门槛 90%），negative 零误报；归一五步定序且单点实现；G005 六格式归一一致；两次运行 `fingerprints`/`pairs` 逐字段一致；三种缺陷注入均报未达标；1000 份扫描 9.28s→0.25s（−97.3%）；3.8 与 3.12 全绿 |
 | M3 聚类与保留建议 | 并查集聚类、三档分类、打分与理由字符串、CSV/JSON 报告 | 每簇理由非空且含判定维度；三档对真值；模板族不与近重复混同 |
 | M4 复核界面 | FastAPI 本地服务 + 单页原生 JS：簇列表、双栏差异高亮、摘要文案、执行确认 | 无命令行完成全流程复核；断网可用；无构建步骤；零外链常驻断言 |
 | M5 隔离与回滚 | `.dedupe-quarantine/<batch-id>/` + manifest 状态机 + undo + 中断恢复 | 撤销后路径逐字节一致；中断后可恢复；隔离区不入 git |

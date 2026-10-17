@@ -18,16 +18,23 @@ from typing import Any, Dict, Mapping, Tuple
 
 # Bumped when the on-disk SQLite layout changes; an older database is rejected
 # instead of being silently migrated (see store.connect).
-DB_SCHEMA_VERSION = 1
+# Version 2 adds the shingle-hash blob (exact scoring) and the MinHash estimate
+# column on ``pairs``.
+DB_SCHEMA_VERSION = 2
 
 # Bumped when normalize() changes, so cached normalized text is invalidated.
 NORMALIZE_VERSION = 1
 
 # Bumped when the extraction logic changes, so cached extracted text is invalidated.
-EXTRACTOR_VERSION = 1
+# Version 2 strips Markdown syntax markers, so a Markdown twin normalizes to the
+# same text as its DOCX/PDF twin (data/README.md 4.3).
+EXTRACTOR_VERSION = 2
 
 # Bumped when the fingerprint algorithm changes, so cached fingerprints are invalidated.
-FINGERPRINT_VERSION = 1
+# Version 2 is the release that first *writes* fingerprints: an index produced by
+# M1 has document rows without normalized text, so its cache keys must not match
+# or those rows would stay un-fingerprinted forever.
+FINGERPRINT_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -47,14 +54,36 @@ class Settings:
     lsh_rows: int = 4  # num_perm must equal lsh_bands * lsh_rows
 
     # --- candidate pre-filter (only reduces candidates, never the truth set) ---
+    # Applied to *normalized text length*, not raw file size: the same body is a
+    # 37 KB DOCX and a 1.3 KB TXT, so a raw-size window would reject every
+    # cross-format pair before scoring. The window still does its documented job
+    # (data/README.md 4.6) — it keeps "a note and a report" from being compared.
     size_ratio_window: float = 0.5
     min_text_chars: int = 80
+    # SimHash Hamming bound. Unrelated documents in the corpus sit around 24-30
+    # bits apart; 20 is the point where the auxiliary filter starts contributing
+    # rather than merely agreeing with the MinHash score.
+    simhash_max_hamming: int = 20
+
+    # --- running heads (data/README.md 4.3 step 4) ---
+    # A header/footer is a *short* line that repeats. Both bounds matter: the
+    # length cap keeps repeated body sentences, the repeat count keeps a title
+    # that legitimately appears twice.
+    header_footer_max_chars: int = 40
+    header_footer_min_repeats: int = 2
 
     # --- clustering tiers (data/README.md 4.5) ---
     exact_threshold: float = 1.0
     near_duplicate_threshold: float = 0.80
     template_threshold: float = 0.90
     template_field_diff_max: int = 6
+
+    # --- pair retention (data/README.md 4.6) ---
+    # ``pairs`` keeps every scored candidate at or above this floor. The floor is
+    # below the tier thresholds on purpose: template-family members sit around
+    # 0.57-0.80, and module 3 has to see them to decide the template tier. It is
+    # a *retention* floor, not a decision: no tier is assigned here.
+    pair_store_threshold: float = 0.55
 
     # --- diff summary (data/README.md 4.10) ---
     signature_max_chars: int = 40

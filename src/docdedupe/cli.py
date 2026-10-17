@@ -338,7 +338,10 @@ def _validate_roots(roots: Sequence[str], err) -> Optional[int]:
     return None
 
 
-def _format_scan_summary(summary, db_path: str) -> List[str]:
+def _format_scan_summary(summary, db_path: str, cfg=None) -> List[str]:
+    from .config import DEFAULT_SETTINGS
+
+    settings = cfg or DEFAULT_SETTINGS
     lines = []
     lines.append(
         "scanned %d file(s): %d indexed (%d from cache, %d extracted) in %.2fs"
@@ -359,6 +362,51 @@ def _format_scan_summary(summary, db_path: str) -> List[str]:
         for path, status in summary.skipped:
             lines.append("  %s  %s" % (status, path))
 
+    # Recall is reported on its own line, with the counters that explain it. A
+    # bare "0 similar pairs" would hide the difference between "nothing is
+    # similar" and "nothing was compared".
+    lines.append(
+        "fingerprinted %d document(s) this pass (%d rebuilt from stored text); "
+        "%d fingerprint row(s) in the index"
+        % (
+            summary.fingerprinted,
+            summary.fingerprinted_from_cache,
+            summary.fingerprints_stored,
+        )
+    )
+    if summary.recall_reused:
+        lines.append(
+            "recall: not recomputed (no fingerprint changed and the stored pair "
+            "table still matches its recorded digest); %d pair(s), %d at or "
+            "above %.2f"
+            % (
+                summary.pairs,
+                summary.pairs_above_threshold,
+                settings.near_duplicate_threshold,
+            )
+        )
+    else:
+        lines.append(
+            "recall: %d document(s) compared, %d band candidate(s), "
+            "%d rejected by simhash, %d below the %.2f retention floor, "
+            "%d stored pair(s), %d at or above %.2f"
+            % (
+                summary.recall_documents,
+                summary.band_candidates,
+                summary.rejected_by_hamming,
+                summary.rejected_by_score,
+                settings.pair_store_threshold,
+                summary.pairs,
+                summary.pairs_above_threshold,
+                settings.near_duplicate_threshold,
+            )
+        )
+    if summary.recall_skipped_short:
+        lines.append(
+            "  %d document(s) below %d normalized characters were not compared"
+            % (summary.recall_skipped_short, settings.min_text_chars)
+        )
+
     lines.append("index: %s" % db_path)
     return lines
 
@@ -367,6 +415,7 @@ def cmd_scan(args: argparse.Namespace, out, err) -> int:
     """Scan the given roots and update the local index."""
     from . import scanner, store
     from . import extract as extract_mod
+    from .config import DEFAULT_SETTINGS
 
     failure = _validate_roots(args.roots, err)
     if failure is not None:
@@ -399,7 +448,7 @@ def cmd_scan(args: argparse.Namespace, out, err) -> int:
         conn.close()
 
     summary.elapsed_seconds = time.perf_counter() - started
-    for line in _format_scan_summary(summary, db_path):
+    for line in _format_scan_summary(summary, db_path, DEFAULT_SETTINGS):
         _emit(out, line)
 
     if summary.files_indexed == 0:

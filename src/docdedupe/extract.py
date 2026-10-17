@@ -161,7 +161,7 @@ def extract(path: Path, *, settings=None) -> ExtractResult:
         if kind == "html":
             return _extract_html(path)
         if kind == "markdown":
-            return _extract_text_like(path, EXTRACTOR_MARKDOWN)
+            return _extract_markdown(path)
         if kind == "text":
             return _extract_text_like(path, EXTRACTOR_TEXT)
     except DependencyMissing:
@@ -292,6 +292,39 @@ def _extract_html(path: Path) -> ExtractResult:
     if not visible:
         return ExtractResult(store.STATUS_NO_TEXT_LAYER, EXTRACTOR_NONE, "")
     return ExtractResult(store.STATUS_OK, visible, EXTRACTOR_HTML)
+
+
+def _extract_markdown(path: Path) -> ExtractResult:
+    """Extract Markdown *text*, dropping the syntax markers.
+
+    ``# 标题`` and ``标题`` are the same title in two containers. Leaving the
+    ``#`` in would make a Markdown twin differ from its DOCX/PDF twin by a
+    character of markup, and the cross-format similarity claim would then be
+    false for a reason that has nothing to do with the document. This mirrors
+    what :func:`_extract_html` does with tags: markup is structure, not body.
+    """
+    raw = path.read_bytes()
+    text = _decode_text(raw)
+
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        # ATX heading (``## Title``) and setext underlines (``===``/``---``).
+        stripped = re.sub(r"^#{1,6}\s*", "", stripped)
+        if re.fullmatch(r"(?:=+|-+|\*+){3,}", stripped):
+            continue
+        # Block quote and list markers: a bullet is not content either.
+        stripped = re.sub(r"^(?:>\s*)+", "", stripped)
+        stripped = re.sub(r"^(?:[-*+]|\d{1,3}[.)])\s+", "", stripped)
+        # Inline emphasis/code markers, keeping the words they wrap.
+        stripped = stripped.replace("**", "").replace("__", "").replace("`", "")
+        if stripped:
+            lines.append(stripped)
+
+    visible = "\n".join(lines)
+    if not visible.strip():
+        return ExtractResult(store.STATUS_NO_TEXT_LAYER, EXTRACTOR_NONE, "")
+    return ExtractResult(store.STATUS_OK, visible, EXTRACTOR_MARKDOWN)
 
 
 def _extract_text_like(path: Path, extractor: str) -> ExtractResult:

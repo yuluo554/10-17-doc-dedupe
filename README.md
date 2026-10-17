@@ -12,14 +12,15 @@
 
 ## 状态
 
-**M1 · 数据先行与扫描层**。合成样本集（带植入真值）与 `scan` 已落地：跨 PDF / DOCX / MD /
-TXT / HTML 抽取正文、SQLite 索引、缓存命中、失败态显式落库。后续里程碑按顺序推进，
+**M2 · 中文友好指纹与召回**。`scan` 在抽取之后继续完成归一化、指纹与候选召回：
+NFKC/空白/页码/页眉页脚归一、字符 3-gram、MinHash(128) + LSH(32×4) 召回、精确 Jaccard 打分，
+结果写入 `fingerprints` 与 `pairs` 两张表。后续里程碑按顺序推进，
 **未实现的命令显式退出 3 并说明计划里程碑，不返回空结果**。
 
 | 命令 | 状态 |
 |---|---|
 | `doc-dedupe --help` / `version` / `selftest` | ✅ 可用 |
-| `scan` | ✅ 可用（M1：扫描与格式适配） |
+| `scan` | ✅ 可用（M1 扫描与格式适配；M2 归一化 + 指纹 + 候选召回） |
 | `report` | ⬜ M3（聚类与保留建议） |
 | `serve` | ⬜ M4（差异复核界面） |
 | `quarantine` / `undo` | ⬜ M5（隔离与回滚） |
@@ -56,20 +57,59 @@ doc-dedupe scan <目录> [--db 索引库路径] [--ignore DIR]
 - 递归遍历（跳过 `.git`、`node_modules`、`.dedupe-quarantine/` 等），**按规范化路径排序处理**，
   结果与文件系统枚举顺序无关；
 - 用**扩展名 + 魔数双识别**判断格式：扩展名是 `.pdf` 但内容不是 PDF 的文件不会被硬解析；
-- 抽取 PDF 文本层 / DOCX 段落与表格 / Markdown / TXT / HTML；
+- 抽取 PDF 文本层 / DOCX 段落与表格 / Markdown / TXT / HTML（Markdown 的 `#`、列表符等语法标记按容器语法剥离）；
 - 把**读不出正文**的文件显式落库为 `skipped:no_text_layer` / `skipped:encrypted` /
   `skipped:unsupported`，在汇总里逐条点名，**不当成"空文档"混进候选集**；
-- 写 SQLite 索引并按缓存键复用结果：文件未变时第二次扫描不再打开文件。
+- 归一化正文（NFKC → 去空白与不可见字符 → 去页码行 → 去跨页高频短行 → 拉丁小写），
+  让全半角、页眉页脚、页码噪声和跨格式差异在比较前消失；
+- 生成字符 3-gram 指纹（64-bit SimHash 预筛 + MinHash(128) + LSH 32×4 召回），
+  对候选对用精确 Jaccard 打分，写入 `pairs`（`score_kind = exact_jaccard`，
+  同时留 `jaccard_estimate` 供审计）；
+- 写 SQLite 索引并按缓存键复用结果：文件未变时第二次扫描不再打开文件，
+  指纹与候选对也不重算（跳过条件由两个摘要证明，见下）。
 
 汇总示例：
 
 ```
-scanned 101 file(s): 101 indexed (0 from cache, 101 extracted) in 0.72s
+scanned 101 file(s): 101 indexed (0 from cache, 101 extracted) in 0.99s
   ok                       94
   skipped:encrypted        2
   skipped:no_text_layer    2
   skipped:unsupported      3
+fingerprinted 94 document(s) this pass (0 rebuilt from stored text); 94 fingerprint row(s) in the index
+recall: 94 document(s) compared, 877 band candidate(s), 455 rejected by simhash, 324 below the 0.55 retention floor, 98 stored pair(s), 81 at or above 0.80
+index: .../index.db
 ```
+
+第二次扫描（目录未变）：
+
+```
+scanned 101 file(s): 101 indexed (101 from cache, 0 extracted) in 0.03s
+...
+recall: not recomputed (no fingerprint changed and the stored pair table still matches its recorded digest); 98 pair(s), 81 at or above 0.80
+```
+
+`pairs` 是派生状态：每次重算都整表替换，所以被编辑过的文件不会留下陈旧边。
+跳过的条件是两个摘要同时成立——召回输入摘要（文档集合、归一化文本哈希、全部指纹、算法参数）
+与结果摘要（`pairs` 表内容），任一不符即重算。
+
+### 召回基准（B3）
+
+```bash
+python tools/bench_recall.py --db <索引库> --samples data/samples
+```
+
+逐组点名输出 PASS/FAIL，并分别报告两个门：near 组召回率（门槛见 `data/README.md` §四.7）
+与 `negative` 组是否零误报。任一门不达标即退出码 1。基准本身可被证伪：
+
+```bash
+python tools/bench_recall.py --db <索引库> --inject-edges drop-above    # 必须 FAIL
+python tools/bench_recall.py --db <索引库> --inject-edges drop-random   # 必须 FAIL
+python tools/bench_recall.py --db <索引库> --inject-groups shift-groups # 必须 FAIL
+```
+
+模板族（G201–G203）在基准里以 `INFO` 行呈现：它们按设计落在近重复阈值以下，
+档位由模块③按"同构骨架 + 字段位差异"判定，不属 M2 的召回门。
 
 ### 合成样本与真值
 
