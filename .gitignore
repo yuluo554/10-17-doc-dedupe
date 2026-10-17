@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+
+# DocDedupe runtime state (文档内容敏感：索引与隔离区永不入 git)
+*.db
+*.sqlite
+*.sqlite3
+.dedupe-quarantine/
+.dedupe-cache/
+docdedupe_index.db*
+report_*.csv
+report_*.json
+out/
+
+# Real documents must never enter the repo (only synthetic samples under data/samples/)
+_docs/
+real_docs/
+private/
+_private/
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.pptx
+!data/samples/**/*.pdf
+!data/samples/**/*.docx
+!data/samples/**/*.doc
+!data/samples/**/*.xlsx
+!data/samples/**/*.pptx
+
+# Logs / temp
+*.log
+tmp/
+.tmp/
+*.bak
+~$*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

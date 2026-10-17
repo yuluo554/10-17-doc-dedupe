@@ -1,0 +1,81 @@
+# data/README.md — 数据依据与纪律
+
+## 一、依据查证记录（三态：✅已核对 / ⬜待核对；基准日 2026-10-17）
+
+| 条目 | 状态 | 渠道/URL | 备注 |
+|---|---|---|---|
+| 检索式 `document similarity deduplicate files` → total_count = 0 | ⬜ 软论据 | GitHub 检索，基准日 2026-10-17 | 无入库截图，仅作辅助论据；检索式与基准日可回溯 |
+| 检索式 `near duplicate document detection` → 33，最高 MarCnuth/deduplication 19★（算法 demo 非产品） | ✅ 已核对 | GitHub 检索，基准日 2026-10-17 | 星数为检索快照，随日期漂移 |
+| 检索式 `simhash document` → 23，最高 19★ | ✅ 已核对 | GitHub 检索，基准日 2026-10-17 | 同上 |
+| 检索式 `pdf duplicate finder` → 11，最高 259★ 为无关清单仓库，真正 PDF 去重仓库全 0★ | ✅ 已核对 | GitHub 检索，基准日 2026-10-17 | 同上 |
+| 检索式 `duplicate file finder` → 1693，前排 fclones 2973★ / dupeguru 7905★ / czkawka 34299★，均为精确或图像 | ✅ 已核对 | GitHub 检索，基准日 2026-10-17 | 同上 |
+| czkawka README 能力表仅 Duplicates(文件名/大小/哈希)/Similar Images/Similar Videos/Same Music，无文档正文相似 | ✅ 已核对 | github.com/qarmin/czkawka，34299★（2026-09-16） | README 能力表原文 |
+| dupeguru `help/en/scan.rst`：Worded scans 字符串来源仅 Filename 或 Music Tags；Contents scans 为 MD5 精确比较 | ✅ 已核对 | github.com/arsenetar/dupeguru，7905★ | 文档原文 |
+| fclones 2973★ 仅精确重复，最后推送 2025-03-03（截至基准日已停更 19 个月） | ✅ 已核对 | github.com/pkolaczk/fclones | 推送时间按基准日计算 |
+| fdupes 3025★ 仅字节比较 | ✅ 已核对 | github.com/adrianlopezroche/fdupes | — |
+| 商业 Duplicate Cleaner Pro 模式止于 similar photos/audio/video frames/metadata tags | ✅ 已核对 | 官网能力页 | 无文档正文模式 |
+| czkawka #1678「Similar text with MinHash」open；原文 "For PDF and docx files, the text could be extracted and processed the same way"；唯一评论 "tremendous improvement" | ✅ 已核对 | github.com/qarmin/czkawka/issues/1678 | issue 原文 |
+| czkawka #1865「Similar document/archive content detection」：extract text from PDF/DOCX/TXT + shingling-MinHash；关闭原因 P3 — Large effort；2026-03-24 创建，次日关闭 | ✅ 已核对 | github.com/qarmin/czkawka/issues/1865 | 关闭原因原文 |
+| czkawka #1310 同类讨论 7 条评论 | ✅ 已核对 | github.com/qarmin/czkawka/issues/1310 | — |
+| tianlian0/paper_checking_system 516★（C#），2025-03-15 停更；需自建比对库，README 明说无本地库则结果恒为 0；是"查重系统"非整理器 | ✅ 已核对 | GitHub | 中文侧区分 |
+| FB208/OpenBidKit_Yibiao 3164★ 标书工具，README 自述查重为"预留"未实现 | ✅ 已核对 | GitHub | 中文侧区分 |
+| 中文需求侧：B 站"标书查重/文档对比/论文查重"为独立内容赛道（"免费的标书查重软件 开源标书查重 文档对比 招投标 相似度检查"、"标书离线查重比对工具…标书、论文或合同差异"、"多文档查重工具"） | ⬜ 软论据 | B 站检索条目文案 | 未做系统性抽样，仅证明需求侧存在 |
+| pypdf / pdfplumber 月下载约 4000 万；python-docx 月下载约 9500 万；simhash 月下载约 25 万 | ✅ 已核对（量级） | PyPI 下载统计 | 量级引用，不随版本精确核对 |
+
+**判定**：跨格式正文级近重复 + 保留建议 + 可解释差异 = 真实真空。检索侧零结果属软论据，主流工具能力表与上游 issue 原文属硬锚点，两者在题面分列，不混用。
+
+## 二、数据源可获取性记录
+
+| 数据源 | 状态 | 说明 / 阻断原因 | 处置 |
+|---|---|---|---|
+| 外部文档数据（真实用户文档） | 不获取 | 内容敏感，禁止采集 | 全程使用合成文档集 |
+| 合成文档集 | ✅ 可获取（自建） | 程序化生成，无外部依赖 | 生成器随仓入库；产物入 `data/samples/`（放行）或按需生成 |
+| 植入真值（真值簇映射） | ✅ 可获取（自建） | 生成时同步写入 manifest | 与样本同仓版本化，回归可复算 |
+| PDF 文本抽取 | ✅ 可获取 | pypdf 或 pdfplumber（PyPI 直连） | 首期依赖；仅文本层 |
+| DOCX 抽取 | ✅ 可获取 | python-docx（PyPI 直连） | 首期依赖 |
+| Markdown / HTML / TXT | ✅ 可获取 | Python 标准库 + 正则 | 无外部依赖 |
+| SimHash / MinHash | ✅ 可获取 | simhash 库或自实现；datasketch 或手写（约百行） | 自实现可控，优先零依赖路径 |
+| SQLite 缓存 | ✅ 可获取 | 标准库 sqlite3 | 本地文件，入 .gitignore |
+| 扫描件 PDF 文本层 | 不可获取 | 无文本层，首期不引入 OCR | 显式标记 `skipped:no_text_layer`，不作负样本静默丢弃 |
+| 加密 PDF | 不可获取 | 不处理 | 显式标记 `skipped:encrypted` |
+
+**可获取性结论**：本题**无外部数据依赖**，所有测试素材均程序化合成；唯一运行时依赖是 PDF/DOCX 文本抽取库，均为成熟 PyPI 包。
+
+## 三、合成数据纪律
+
+- **假名白名单**：合成文档一律使用假公司名（如"示例科技有限公司A"）、假项目名（如"示例项目甲"）、假人名（如"张三/李四/王五"），禁用任何真实机构名、真实项目代号、真实人名。
+- **植入真值**：生成器在生成样本的同时输出 `truth/manifest.json`，明确记录——哪些文件属于同一真值簇、每簇属于"完全重复 / 近重复 / 模板族"哪一档、近重复成员相对基准版的差异类型（改写 / 截断 / 换格式）。
+- **差异类型覆盖**：样本必须覆盖改写版、截断版、换格式版（同一正文分别落 DOCX/PDF/MD/TXT/HTML）、模板族（同模板不同字段）、无文本层 PDF、加密 PDF、全半角混排、带页眉页脚与页码的跨页文档。
+- **真值与引擎同源**：真值只描述"事实分组"，不手写相似度分数；分数由引擎计算，避免同一条规则出现两套口径。
+- **样本可再生成**：生成器带固定随机种子，保证同种子产物一致；样本与 manifest 一并版本化。
+
+## 四、数值口径纪律（一处定义）
+
+以下规则**只在本节定义一次**，plan/01、代码注记、报告文案一律引用本节，不得手写第二口径：
+
+1. **SimHash 位宽**：64 bit。
+2. **shingle 长度**：字符 3-gram（中文不依赖空格与分词；英文同样按字符切分以保持单一实现）。
+3. **归一化顺序**：NFKC 全半角归一 → 去空白与不可见字符 → 去页码行 → 去重复页眉页脚（同文档内跨页高频短行）→ 小写化（仅拉丁字符）。顺序固定，不得局部重排。
+4. **相似度**：以 MinHash 估计的 Jaccard 相似度为主分数；SimHash 汉明距离为辅助分桶信号。两者均落库，报告中标注所用分数类型。
+5. **分档阈值**：完全重复 = 正文归一化后逐字节一致（或内容哈希一致）；近重复 = 达到近重复阈值且不属于模板族；模板族 = 命中模板族判据（成员间差异集中于字段位、且存在同构骨架）。**阈值取值为配置项，首期默认值在配置文件中单点定义，基准与实现共用同一配置键。**
+6. **粗筛**：按文件大小比例窗口与扩展名分组缩小候选；粗筛只减少候选对，**不得改变召回真值口径**（真值按"应召回对"定义，与粗筛实现解耦）。
+7. **召回率验收口径**：对 20 组人工构造样本，命中判据 = 同一真值簇的全部成员被聚进同一簇，且簇内不含其他真值簇成员；召回率 = 满足命中的组数 / 20。门槛 ≥ 90%。
+8. **缓存键**：`sha256(规范化绝对路径 | size | mtime_ns | 抽取器版本号 | 归一化版本号 | n-gram 参数)`；任一字段变化即缓存失效。**此定义为唯一口径**。
+9. **二次扫描性能门槛**：同一目录、无文件变更的前提下，第二次扫描的 wall-clock 耗时相对首次下降 ≥ 80%；测量方式为同机同进程冷启动各一次，取单次实测。
+10. **差异摘要口径**："仅差 X 段"= 段落级 diff 中新增与删除块计为 1 段差异的块数；"差一个署名"= 差异仅出现在疑为署名行的单一短段落且长度低于配置阈值；"差一页"= 差异分布跨越整页且页级相似度低于配置阈值。三句文案均由同一差异统计函数产出。
+
+## 五、隐私与提交纪律
+
+- **真实文档永不入库、永不入 git、永不入示例目录**；示例全部为合成数据。
+- 隔离区 `.dedupe-quarantine/`、索引库 `*.db`、导出的真实报告一律入 `.gitignore`。
+- 运行时零网络：不调用任何远程接口，Web 界面仅绑定 `127.0.0.1`。
+- 提交元数据统一为 `yuluo554 <282769740+yuluo554@users.noreply.github.com>`；仓库内不得出现本机绝对路径。
+
+## 附录：假数据白名单（随用例扩充登记）
+
+| 类型 | 白名单 | 状态 |
+|---|---|---|
+| 公司名 | 示例科技有限公司A/B、示例建设集团C | ✅ 登记 |
+| 项目名 | 示例项目甲/乙、示例标段一 | ✅ 登记 |
+| 人名 | 张三、李四、王五、赵六 | ✅ 登记 |
+| 真实机构/真实人名/真实项目/真实文档 | 一律禁用 | 红线 |
