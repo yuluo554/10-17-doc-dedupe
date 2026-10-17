@@ -400,6 +400,34 @@ def check_plan_ledger(repo: str) -> None:
     add(PASS, "PLAN00", "all %d M6 status row(s) are flipped" % len(rows))
 
 
+def check_readme_artifacts(repo: str, facts: Dict[str, str]) -> None:
+    """Every artifact name the README mentions must be one the release ships.
+
+    Setuptools normalises the distribution name to underscores, so the shipped
+    file is ``doc_dedupe-0.1.0.tar.gz`` while the project is ``doc-dedupe``. The
+    README is where a reader copies a filename from, so it is where that
+    difference turns into a failed verification. Measured while cutting this
+    release: the README had the hyphenated spelling.
+    """
+    path = Path(repo) / "README.md"
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8", errors="replace")
+    mentioned = set(re.findall(r"doc[_-]dedupe-[A-Za-z0-9._-]+\.(?:tar\.gz|whl)", text))
+    if not mentioned:
+        add(WARN, "README_ARTIFACTS", "the README names no artifact file")
+        return
+    shipped = set(artifact_names(facts))
+    unknown = sorted(name for name in mentioned if name not in shipped)
+    if unknown:
+        add(FAIL, "README_ARTIFACTS",
+            "the README names artifact(s) the release does not ship: %s (shipped: %s)"
+            % (", ".join(unknown), ", ".join(sorted(shipped)) or "none"))
+    else:
+        add(PASS, "README_ARTIFACTS", "every artifact the README names is shipped: %s"
+            % ", ".join(sorted(mentioned)))
+
+
 def check_readme_exit_codes(repo: str) -> None:
     """The README must state the real exit codes, not a comfortable "all zero".
 
@@ -571,6 +599,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     check_release_has_assets(repo, tag, not args.no_gh)
     check_ci_green(repo, tag, not args.no_gh)
     check_plan_ledger(repo)
+    check_readme_artifacts(repo, facts)
     check_readme_exit_codes(repo)
     check_leaks(repo)
     check_clean_tree(repo)

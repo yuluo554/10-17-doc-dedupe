@@ -264,6 +264,19 @@ Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
 facts 块（写进去会改变那棵树），`DOC_UNCHANGED` 因为本节就是 tag 后的追加。
 "0 FAIL"是硬要求，"0 WARN"不是。
 
+### 2.5 tag 之后改了什么（按 §二 的规矩分栏记录）
+
+tag 树里的仓库状态与本文件 §一 所写一致；下列改动只出现在 tag 之后，不影响 tag 内容：
+
+| 改动 | 为什么 |
+|---|---|
+| README 的复验片段改用**真实产物名**（`doc_dedupe-…` 下划线，含两个真实 sha256） | README 原先写的是连字符 `doc-dedupe-0.1.0.tar.gz`——setuptools 规范化后实际是下划线。DoD 要求"README 的附件名与实物一致"，这是唯一一处不一致 |
+| `check_release.py` 新增 `README_ARTIFACTS` 门 | 让上面那类漂移不可能再悄悄发生：README 里出现的任何 `doc[_-]dedupe-*.tar.gz/whl` 必须真的在 Release 里；加了两条测试（提到未发布的名字必须红、提到真实名字必须绿） |
+| 测试数 481 → **483** | 就是上面那两条测试。tag 提交（`5958987`）仍是 481 项；这两个数字各自都说的是自己那次提交 |
+
+tag 之后 `main` 的提交因此与 tag 指向的提交不同，这是 §二 存在的理由——
+`DOC_UNCHANGED` 报 WARN 正是它在如实说明这件事。
+
 ## 三、诚实口径
 
 - **CI 在本机之外跑过，但只跑过这一个矩阵**：ubuntu/windows × 3.8/3.12。

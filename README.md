@@ -414,16 +414,22 @@ doc-dedupe reports --db index.db --out out/                                   # 
 ## 发布与复验
 
 发布留档在 [`plan/RELEASE-M6.md`](plan/RELEASE-M6.md)：tag、产物名与每个产物的 sha256，
-以及 tag 时点事实与 tag 后追加事实（分栏）。产物同时挂在 GitHub Release 上，可这样复验：
+以及 tag 时点事实与 tag 后追加事实（分栏）。产物同时挂在
+[GitHub Release](https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0) 上，
+下载后这样复验（`sha256sum -c` 直接跑；Windows 用 `Get-FileHash` 对照）：
 
 ```bash
-sha256sum -c <<'EOF'
-<plan/RELEASE-M6.md 里记录的 sha256>  doc-dedupe-0.1.0.tar.gz
-EOF
+sha256sum -c <<'SUMS'
+092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
+80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
+SUMS
 ```
 
+两个产物名由 setuptools 规范化，是**下划线**（`doc_dedupe-...`），不是包名里的连字符。
+
 仓库自带的发布门禁把可机械判定的那一部分做成硬门（tag 是 annotated 且在 CI 之上、
-留档在 tag 树内、产物 sha256 与留档一致、plan/00 台账已翻转、工作树干净、
+留档在 tag 树内、产物 sha256 与留档一致（本地副本与 Release 附件各验一次）、
+README 提到的产物名必须真的在 Release 里、`plan/00` 台账已翻转、工作树干净、
 跟踪文件与 git 历史里没有本机路径）：
 
 ```bash

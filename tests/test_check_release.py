@@ -54,12 +54,12 @@ FACTS_BODY = """# release record
 ```yaml
 # release-facts
 tag: v0.1.0
-artifact: doc-dedupe-0.1.0.tar.gz
+artifact: doc_dedupe-0.1.0.tar.gz
 ```
 
 ## after the tag
 
-sha256: {digest}  doc-dedupe-0.1.0.tar.gz
+sha256: {digest}  doc_dedupe-0.1.0.tar.gz
 """
 
 FACTS_WITH_DIGEST_INSIDE = """# release record
@@ -67,7 +67,7 @@ FACTS_WITH_DIGEST_INSIDE = """# release record
 ```yaml
 # release-facts
 tag: v0.1.0
-artifact: doc-dedupe-0.1.0.tar.gz
+artifact: doc_dedupe-0.1.0.tar.gz
 sha256: {digest}
 ```
 """
@@ -104,7 +104,7 @@ def _write_release(root: Path, digest: str, template: str = FACTS_BODY):
     (root / "plan").mkdir(exist_ok=True)
     (root / "plan" / "00-README总览.md").write_text(LEDGER_BODY, encoding="utf-8")
     (root / "release").mkdir(exist_ok=True)
-    artifact = root / "release" / "doc-dedupe-0.1.0.tar.gz"
+    artifact = root / "release" / "doc_dedupe-0.1.0.tar.gz"
     artifact.write_bytes(b"pretend tarball\n")
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     (root / "plan" / "RELEASE-M6.md").write_text(template.format(digest=digest), encoding="utf-8")
@@ -186,7 +186,7 @@ def test_a_tampered_local_artifact_fails(repo, capsys):
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "initial")
     _git(repo, "tag", "-a", "v0.1.0", "-m", "release")
-    (repo / "release" / "doc-dedupe-0.1.0.tar.gz").write_bytes(b"different bytes\n")
+    (repo / "release" / "doc_dedupe-0.1.0.tar.gz").write_bytes(b"different bytes\n")
     code, out = _run_gate(repo, capsys)
     assert code == 1
     assert "[FAIL] ARTIFACT_LOCAL" in out
@@ -257,9 +257,9 @@ def test_facts_block_is_parsed_from_the_document(repo):
     _write_release(repo, "")
     facts = check_release.read_facts(str(repo))
     assert facts["tag"] == "v0.1.0"
-    assert facts["artifact"] == "doc-dedupe-0.1.0.tar.gz"
-    assert list(facts["digests"]) == ["doc-dedupe-0.1.0.tar.gz"]
-    assert check_release.SHA256_RE.match(facts["digests"]["doc-dedupe-0.1.0.tar.gz"])
+    assert facts["artifact"] == "doc_dedupe-0.1.0.tar.gz"
+    assert list(facts["digests"]) == ["doc_dedupe-0.1.0.tar.gz"]
+    assert check_release.SHA256_RE.match(facts["digests"]["doc_dedupe-0.1.0.tar.gz"])
 
 
 def test_the_digest_may_be_recorded_after_the_tag(repo, capsys):
@@ -291,7 +291,7 @@ def test_a_missing_digest_anywhere_fails(repo, capsys):
 ```yaml
 # release-facts
 tag: v0.1.0
-artifact: doc-dedupe-0.1.0.tar.gz
+artifact: doc_dedupe-0.1.0.tar.gz
 ```
 """)
     _git(repo, "add", "-A")
@@ -347,3 +347,35 @@ def test_two_runs_do_not_accumulate_results(repo, capsys):
     first = len(check_release.RESULTS)
     _run_gate(repo, capsys)
     assert len(check_release.RESULTS) == first
+
+
+def test_a_readme_naming_an_unshipped_artifact_fails(repo, capsys):
+    """The README is where a reader copies a filename from.
+
+    Setuptools writes ``doc_dedupe-0.1.0.tar.gz`` (underscore) while the project
+    is ``doc-dedupe``; the README shipped the hyphenated spelling until this gate
+    existed.
+    """
+    _write_release(repo, "")
+    (repo / "README.md").write_text(
+        README_BODY + "\n`doc-dedupe-0.1.0.tar.gz`\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "initial")
+    _git(repo, "tag", "-a", "v0.1.0", "-m", "release")
+    code, out = _run_gate(repo, capsys)
+    assert code == 1
+    assert "[FAIL] README_ARTIFACTS" in out
+    assert "doc-dedupe-0.1.0.tar.gz" in out
+
+
+def test_a_readme_naming_the_shipped_artifact_passes(repo, capsys):
+    _write_release(repo, "")
+    (repo / "README.md").write_text(
+        README_BODY + "\n`doc_dedupe-0.1.0.tar.gz`\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "initial")
+    _git(repo, "tag", "-a", "v0.1.0", "-m", "release")
+    _git(repo, "push", "-q", "origin", "HEAD", "--tags")
+    code, out = _run_gate(repo, capsys)
+    assert code == 0, out
+    assert "[PASS] README_ARTIFACTS" in out
