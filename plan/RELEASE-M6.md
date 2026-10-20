@@ -29,7 +29,7 @@ sdist / wheel 里（本版实测：sdist 55 个条目、wheel 23 个条目，都
 
 | 项 | 落在哪 | 可复验方式 |
 |---|---|---|
-| ① git tag | v0.1.0，annotated，打在 CI 全绿的收尾提交上，且与 `HEAD` 重合 | `git cat-file -t v0.1.0` → `tag`；`gh release view v0.1.0`；CI 是否全绿由 `check_release.py` 的 `CI_GREEN` 核 |
+| ① git tag | v0.1.0，annotated，打在 CI 全绿的提交上，且与 `HEAD` 重合 | `git cat-file -t v0.1.0` → `tag`；`gh release view v0.1.0`；CI 是否全绿由 `check_release.py` 的 `CI_GREEN` 核；落点自己核：`git rev-list -n1 v0.1.0` |
 | ② Release 附产物 | sdist + wheel 两个附件，本地留 `release/` 副本 | 第二节的 sha256 行 + `sha256sum -c` |
 | ③ 发布留档 | 本文件，进 tag 树 | `git cat-file -e v0.1.0:plan/RELEASE-M6.md` |
 
@@ -44,7 +44,7 @@ sdist / wheel 里（本版实测：sdist 55 个条目、wheel 23 个条目，都
 | 第 2 轮 | `caa2043`（已被重写） | **4/4 成功** | 481 项 / 0 跳过 / 0 失败，四作业一致 |
 | 第 3 轮 | `0a76678`（已被重写） | **4/4 成功** | 同上 |
 | 第 4 轮 | `3ae7059`（已被重写） | **4/4 失败** | 本文件自己把抹掉的字面量抄了回来；见 1.3 末段 |
-| 第 5 轮 | `5958987`（M6 首个 tag 位置） | **4/4 成功** | 481 项；M6 首版 `v0.1.0` 就打在这里。**本版已把这个 tag 移到下面的收尾提交上**，原因见 §1.9 |
+| 第 5 轮 | `5958987`（M6 首个 tag 位置） | **4/4 成功** | 481 项；M6 首版 `v0.1.0` 就打在这里。**本版把这个 tag 移走**，落到 §1.9 那 6 个修正及其后的发布线改动上（落点自己核：`git rev-list -n1 v0.1.0`），原因见 §1.9 |
 
 第 2 轮的读法值得写下来：结论行之外还核了两件事——**用例数**与**没有跳过**。
 把每个作业的 pytest 进度行抽出来数：`481` 个字符，全部是 `.`，非点字符 `0`
@@ -218,12 +218,14 @@ M6 首个 tag（`v0.1.0` 原位 `5958987`）之后、本版 tag 之前，`main` 
 
 ### 2.1 产物与 digest
 
-产物构建于 `8919034`（本版 tag 的父提交）那次检出：当时 `git status --porcelain` 只有一条
-未跟踪的评审目录，其余干净。它与 tag 树的差别只有三处——`.github/workflows/ci.yml`、
-`.gitignore`、以及本文件里的这几行 digest——**三处都不在任何产物里**（本版实测：sdist 55 个
-条目、wheel 23 个条目，`plan/`、`tools/`、`.github/` 均不在其中）。所以 digest 行不影响产物
-字节；而且从 tag 树重新构建一次，逐个文件比过 sha256：**23 个 wheel 条目与 48 个 sdist 文件
-全部逐字节相同**，上传的那一份就是 tag 树能构建出来的那一份内容。
+产物构建于 `8919034` 那次检出（M6 收尾提交，也就是本轮动手之前的那次 `HEAD`）：
+当时 `git status --porcelain` 只有一条未跟踪的评审目录，其余干净。那次检出与 tag 树的
+**所有差别都落在这三处**——本文件、`.gitignore`、`.github/workflows/ci.yml`——而**没有一处
+是产物的输入**（产物的输入是 LICENSE、README.md、pyproject.toml、setup.cfg、`src/`、
+`tests/`；本版实测 sdist 55 个条目、wheel 23 个条目，`plan/`、`tools/`、`.github/` 都不在
+其中）。所以本文件里的 digest 行不影响产物字节；而且从 tag 树重新构建一次、逐个文件比过
+sha256：**23 个 wheel 条目与 48 个 sdist 文件全部逐字节相同**——上传的那一份，就是 tag 树
+能构建出来的那一份内容。
 本地副本在 `release/`（`.gitignore` 里，不入仓），同一份挂在 Release 上：
 
 ```yaml
