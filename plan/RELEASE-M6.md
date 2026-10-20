@@ -218,32 +218,35 @@ M6 首个 tag（`v0.1.0` 原位 `5958987`）之后、本版 tag 之前，`main` 
 
 ### 2.1 产物与 digest
 
-产物构建于 `8919034` 那次检出（M6 收尾提交，也就是本轮动手之前的那次 `HEAD`）：
-当时 `git status --porcelain` 只有一条未跟踪的评审目录，其余干净。那次检出与 tag 树的
-**所有差别都落在这三处**——本文件、`.gitignore`、`.github/workflows/ci.yml`——而**没有一处
-是产物的输入**（产物的输入是 LICENSE、README.md、pyproject.toml、setup.cfg、`src/`、
-`tests/`；本版实测 sdist 55 个条目、wheel 23 个条目，`plan/`、`tools/`、`.github/` 都不在
-其中）。所以本文件里的 digest 行不影响产物字节；而且从 tag 树重新构建一次、逐个文件比过
-sha256：**23 个 wheel 条目与 48 个 sdist 文件全部逐字节相同**——上传的那一份，就是 tag 树
-能构建出来的那一份内容。
+产物构建于本版提交之前的最后一次干净检出。它与 tag 树的差别**只有本文件里的这几行 digest**：
+产物的输入是 LICENSE、README.md、pyproject.toml、setup.cfg、`src/`、`tests/`，而 `plan/`、
+`tools/`、`.github/` 都不在其中（本版实测：sdist 55 个条目、wheel 23 个条目）。所以 digest 行
+不影响产物字节；并且从 tag 树重新构建一次、逐个文件比过 sha256：**23 个 wheel 条目与 48 个
+sdist 文件全部逐字节相同**——上传的那一份，就是 tag 树能构建出来的那一份内容。
 本地副本在 `release/`（`.gitignore` 里，不入仓），同一份挂在 Release 上：
 
 ```yaml
-sha256: 99eb7d0ca6f3513a3db2170d46576ff2992a3bd8f74c2162cd10f2a567422db7  doc_dedupe-0.1.0.tar.gz
-sha256: 8e1bc46d988a57958da22a08ee5a2d959b75fda6c8b1d3ef6d60e5dae9a6b86c  doc_dedupe-0.1.0-py3-none-any.whl
+sha256: 4b7b7ba753187088923c87782dd5bcf31be5c13114b63206d870e8aa6eec099e  doc_dedupe-0.1.0.tar.gz
+sha256: 9acfd74f92cba9762fe143bf1aa57fa9fe5497c28d0f06a1842bd376d0c2903e  doc_dedupe-0.1.0-py3-none-any.whl
 ```
+
+**为什么 digest 只写在这里、不抄进 README**：README 会被嵌进 sdist，也会进 wheel 的元数据
+（`long_description`）。把 digest 写进 README，就等于让"产物的摘要"出现在产物内部——那个环
+只能差一步收敛，产物里嵌的那份 README 永远指着上一批产物。这不是假想：M6 首版把两个 digest
+抄在了 README 里（§1.9 的 `dfeaf7f` 那行），本轮重打产物之后它们立刻与 Release 上的实物不符。
+本文件不在任何产物里，所以它是唯一能稳定收敛的出处；README 只负责给产物名。
 
 复验（把上面两行原样喂给 `sha256sum -c` 即可；Windows 用 `Get-FileHash`）：
 
 ```bash
 sha256sum -c <<'SUMS'
-99eb7d0ca6f3513a3db2170d46576ff2992a3bd8f74c2162cd10f2a567422db7  doc_dedupe-0.1.0.tar.gz
-8e1bc46d988a57958da22a08ee5a2d959b75fda6c8b1d3ef6d60e5dae9a6b86c  doc_dedupe-0.1.0-py3-none-any.whl
+4b7b7ba753187088923c87782dd5bcf31be5c13114b63206d870e8aa6eec099e  doc_dedupe-0.1.0.tar.gz
+9acfd74f92cba9762fe143bf1aa57fa9fe5497c28d0f06a1842bd376d0c2903e  doc_dedupe-0.1.0-py3-none-any.whl
 SUMS
 ```
 
 Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
-两个附件（`doc_dedupe-0.1.0-py3-none-any.whl` 106,534 B、`doc_dedupe-0.1.0.tar.gz` 192,973 B），
+两个附件（`doc_dedupe-0.1.0-py3-none-any.whl` 106,636 B、`doc_dedupe-0.1.0.tar.gz` 193,173 B），
 不是 draft、不是 prerelease。`tools/check_release.py` 会用 `gh release download` 把附件真的拉下来
 再算一次 sha256 与上表比对——"挂在 Release 上"不是靠肉眼看的。
 
@@ -310,6 +313,9 @@ python tools/check_release.py      # 期望 0 FAIL / 2 WARN / 19 PASS，exit 0
     另一条路，代价是 tag 之外多一个提交，也就回到了"tag 落后 HEAD"——**本轮要修的正是它**。
   - 所以在"不改门 + 不制造后置提交"的前提下，本版的最优成绩是 **0 FAIL / 2 WARN**。
     本版选择让 tag 与收尾提交重合：留档在 tag 树里就是终态，tag 之后没有任何改动。
+- **产物 digest 的唯一出处是本文件 §2.1，不在 README 里**：README 会被嵌进 sdist 与 wheel
+  元数据，把 digest 写进去等于让产物的摘要出现在产物内部，那个环只能差一步收敛。首版 README
+  里的两个 digest 在本轮重打产物后立刻失效（已从 README 移走），所以这类漂移不再可能。
 - **license 元数据仍是弃用写法，这是刻意的、有实测依据的**：
   `project.license = { text = "MIT" }` 与 `License :: OSI Approved :: MIT License`
   在 setuptools 84 上各报一条 `SetuptoolsDeprecationWarning`（原文含

@@ -413,17 +413,17 @@ doc-dedupe reports --db index.db --out out/                                   # 
 
 ## 发布与复验
 
-发布留档在 [`plan/RELEASE-M6.md`](plan/RELEASE-M6.md)：tag、产物名与每个产物的 sha256，
-以及 tag 时点事实与 tag 后追加事实（分栏）。产物同时挂在
-[GitHub Release](https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0) 上，
-下载后这样复验（`sha256sum -c` 直接跑；Windows 用 `Get-FileHash` 对照）：
+发布留档在 [`plan/RELEASE-M6.md`](plan/RELEASE-M6.md)：tag、产物名、**每个产物的 sha256**、
+出口门实测。两个产物（`doc_dedupe-0.1.0-py3-none-any.whl`、`doc_dedupe-0.1.0.tar.gz`）
+挂在 [GitHub Release](https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0) 上。
 
-```bash
-sha256sum -c <<'SUMS'
-092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
-80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
-SUMS
-```
+复验：从留档 §2.1 复制那两行（`sha256: <hex>  <文件名>`），原样喂给 `sha256sum -c`
+（Windows 用 `Get-FileHash` 对照）——留档里已经有一个可直接跑的 heredoc 块。
+
+**digest 只写在发布留档里，不抄在这里。** 理由是机械的：README 自己会被嵌进 sdist，
+也会进 wheel 的元数据（`long_description`），把 digest 写进 README 就等于让"产物的摘要"
+出现在产物内部——这个环只能差一步收敛，产物里嵌的那份 README 永远指着上一批产物。
+留档不在任何产物里（`plan/` 不在 sdist/wheel 中），所以它是唯一能稳定收敛的出处。
 
 两个产物名由 setuptools 规范化，是**下划线**（`doc_dedupe-...`），不是包名里的连字符。
 
