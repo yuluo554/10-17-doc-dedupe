@@ -68,6 +68,12 @@ tmp/
 # plan/RELEASE-M6.md records their sha256 so a downloaded copy can be re-verified.
 /release/
 
+# Iteration hand-off folder. It is written by the review/diagnosis pass and quotes
+# machine-specific absolute paths, so it must never be committed (the LEAKS gate
+# scans tracked files byte by byte). Ignoring it is also what keeps CLEAN_TREE
+# honest: otherwise the folder sits in the tree as an untracked entry and fails the gate.
+update/
+
 # IDE / OS
 .idea/
 .vscode/

@@ -2,10 +2,15 @@
 
 - 仓库：<https://github.com/yuluo554/10-17-doc-dedupe>（public）
 - 版本：v0.1.0
-- 本文件分两栏，这是刻意的：**一、tag 时点事实**在打 tag 之前写好、随 tag 进树
-  （`git cat-file -e <tag>:plan/RELEASE-M6.md` 应当成立）；**二、tag 后追加**只放
-  打 tag 之后才可能算出的事实（产物 sha256、tag 提交自己的 CI、Release 附件）。
-  留档若在 tag 之后"补写"，`git cat-file` 一查就露，那样的留档不可信。
+- **本 tag 与收尾提交重合**：`git rev-list -n1 v0.1.0` == `git rev-parse HEAD`，
+  `git log --oneline v0.1.0..HEAD` 为空。本文件因此不再分"tag 时点 / tag 之后"两栏——
+  能写进 tag 树的事实**全部**写在这里，且工作树里的本文件与 tag 树里的**逐字节相同**
+  （`git cat-file -e v0.1.0:plan/RELEASE-M6.md` 成立；门仍会报一条 `DOC_UNCHANGED` WARN，
+  原因在门自己身上，见 §2.3）。
+- **写不进来的只有两件**：tag 对象自己的 sha，和它自己那次 tag push 的 CI——这两样在
+  tag 存在之前不存在，写进 tag 树就是自指（§三 有证明）。它们交给
+  `tools/check_release.py` 的 `TAG_ANNOTATED` / `CI_GREEN` / `REMOTE_TAG` 三门去核：
+  让机器去核，比在这里抄一遍更难伪造。
 
 ```yaml
 # release-facts
@@ -13,9 +18,10 @@ tag: v0.1.0
 artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 ```
 
-产物名先在这里定下（tag 时点可知），**digest 不在这一栏**：产物是从 tag 树构建出来的，
-把 digest 写进 tag 树会改变这棵树，也就改变了 digest。digest 记录在第二节，
-`tools/check_release.py` 两处都读（见该脚本 `read_facts`）。
+产物名与 digest 都记在本文件里（§二）。**digest 可以进 tag 树**：本仓的 `plan/` 不在
+sdist / wheel 里（本版实测：sdist 55 个条目、wheel 23 个条目，都没有 `plan/`），
+把 digest 写进本文件不会改变产物字节——读者拿 tag 树里的这一份记录就能校验产物。
+`tools/check_release.py` 的 `read_facts` 从本文件读产物名与 digest。
 
 ## 一、tag 时点事实
 
@@ -23,7 +29,7 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 
 | 项 | 落在哪 | 可复验方式 |
 |---|---|---|
-| ① git tag | v0.1.0，annotated，打在 CI 全绿的收尾提交上 | `git cat-file -t v0.1.0` → `tag`；`gh release view v0.1.0` |
+| ① git tag | v0.1.0，annotated，打在 CI 全绿的收尾提交上，且与 `HEAD` 重合 | `git cat-file -t v0.1.0` → `tag`；`gh release view v0.1.0`；CI 是否全绿由 `check_release.py` 的 `CI_GREEN` 核 |
 | ② Release 附产物 | sdist + wheel 两个附件，本地留 `release/` 副本 | 第二节的 sha256 行 + `sha256sum -c` |
 | ③ 发布留档 | 本文件，进 tag 树 | `git cat-file -e v0.1.0:plan/RELEASE-M6.md` |
 
@@ -38,7 +44,7 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 | 第 2 轮 | `caa2043`（已被重写） | **4/4 成功** | 481 项 / 0 跳过 / 0 失败，四作业一致 |
 | 第 3 轮 | `0a76678`（已被重写） | **4/4 成功** | 同上 |
 | 第 4 轮 | `3ae7059`（已被重写） | **4/4 失败** | 本文件自己把抹掉的字面量抄了回来；见 1.3 末段 |
-| 第 5 轮 | 收尾提交（含本文件） | 见第二节 | tag 就打在它上面 |
+| 第 5 轮 | `5958987`（M6 首个 tag 位置） | **4/4 成功** | 481 项；M6 首版 `v0.1.0` 就打在这里。**本版已把这个 tag 移到下面的收尾提交上**，原因见 §1.9 |
 
 第 2 轮的读法值得写下来：结论行之外还核了两件事——**用例数**与**没有跳过**。
 把每个作业的 pytest 进度行抽出来数：`481` 个字符，全部是 `.`，非点字符 `0`
@@ -109,7 +115,7 @@ artifact: doc_dedupe-0.1.0.tar.gz, doc_dedupe-0.1.0-py3-none-any.whl
 |---|---|---|
 | 源码 | 全部跟踪文件按字节扫描（二进制跳过）：本机用户名目录、ProgramData 工作目录、临时目录、QQ 邮箱 | **0 命中**（171 个跟踪文件，114 个按文本扫） |
 | 文档 | README 与 plan 的命令一律相对路径或中性路径（`C:/demo`、`data/samples`）；M4/M5 截图用 `C:/demo` | 复核通过 |
-| 历史 | 全部 ref 可达的 blob 逐个扫描（870 个 blob / 11 个提交）| **0 命中**（见 1.6 的重写记录）|
+| 历史 | 全部 ref 可达的 blob 逐个扫描（本版实测 19 个提交 / 258 个去重 blob；旧记录写的 870 / 1100 已复算不出，见 §1.9）| **0 命中**，由 `test_no_machine_absolute_paths_in_git_history` 逐 blob 复核 |
 | 产物 | `plan/media/*.png` 逐像素看图复核（文字都烧进像素，扫描器看不见） | 只有 `C:/demo/...` 中性路径，无用户名 |
 
 `plan/media/M4-review-page.png` 与 `M5-quarantine-page.png` 里的路径文字分别是
@@ -168,8 +174,9 @@ B3/B4/B5 各打印一行 `HINT: no truth-manifest file is present in the index �
 
 | 项 | 数字 |
 |---|---|
-| 测试 | 本机 3.8 / 3.12 各 **481** 项全绿，0 跳过；CI 四作业同为 481 项 |
-| 发布门禁 | `python tools/check_release.py .`：见第二节（tag 之后才有意义） |
+| 测试（本机 3.12） | **`484 passed`**，退出码 0（`-o addopts="" -q`，约 79s），0 跳过 |
+| 测试（本机 3.8） | **`484 passed`**，退出码 0（`.venv38`，约 106s），0 跳过 |
+| 发布门禁 | `python tools/check_release.py .`：复验请自己跑，期望与理由写在 §2.3 |
 | 基准数 | B3 20/20、B4 27/27、B5 63/63、B6 58/58 |
 
 `tools/check_release.py` 是本仓库自带的发布门禁，把 M6 DoD 里可机械判定的部分做成硬门：
@@ -178,109 +185,107 @@ tag 提交的 CI 全绿且 branch push 与 tag push 各有一条、`plan/00` 三
 README 的退出码语义、跟踪文件里没有本机路径、工作树干净、远端与远端 tag 同源。
 `--no-gh` 时网络项报 SKIP（不是 PASS）。
 
-## 二、tag 后追加
+### 1.9 本版相对 M6 首个 tag 位置的修正（现已并入本 tag）
 
-> 本栏在 tag 打出、产物构建完成之后填写。tag 树里的本文件到"## 二"这一行为止，
-> 因此 `DOC_UNCHANGED` 门会（正确地）报一条 WARN 而不是 PASS。
+M6 首个 tag（`v0.1.0` 原位 `5958987`）之后、本版 tag 之前，`main` 上又落了 6 个提交。
+它们不再是"tag 之后的追加"，而是**本 tag 的一部分**，逐条留档：
 
-### 2.1 tag 指向哪一次提交、那次提交有哪些 CI
+| 提交 | 改动 | 为什么 |
+|---|---|---|
+| `d3c32d2` | 追加：tag 指向的提交、它的两条 CI、产物 sha256、Release 与门禁输出 | 把"tag 之后才知道的事实"单独成栏，不混进 tag 树 |
+| `dfeaf7f` | README 复验片段改用**真实产物名**（`doc_dedupe-…` 下划线，含真实 sha256）；`check_release.py` 新增 `README_ARTIFACTS` 门 | README 原写的是连字符 `doc-dedupe-0.1.0.tar.gz`，而 setuptools 规范化后是下划线——DoD 要求"README 的附件名与实物一致"，这是当时唯一一处不一致。加了门就不可能再悄悄漂移（另加两条测试：提到未发布的名字必须红、提到真实名字必须绿） |
+| `8f08988` | 照抄实跑的门禁输出（新增 `README_ARTIFACTS` 后是 19 PASS） | 让读者能逐条对上，而不是只看"19 PASS"这个总数 |
+| `3ab9ced` | `plan/HANDOFF-M6.md` §五 10 项 + `plan/05` M6 节 9 项 DoD 逐项打勾 | 这两处明写"逐项打勾"；打勾要等对应事实都出来（tag、Release、CI 对账、0 FAIL） |
+| `004ad27` | `ci.yml` 的 `actions/checkout` 加 **`fetch-depth: 0`** | 补一个**覆盖面**漏洞：默认浅克隆只取 1 个提交，而历史脱敏门是"遍历所有 ref 可达的 blob"。**门还在，覆盖悄悄缩水了**——tip 树有 172 个文件，浅克隆下却只有 1 个提交可达 |
+| `8919034` | 历史门加非空跑守卫 `test_the_history_scan_covers_more_than_the_tip_commit` | 让上面那条不可能再退化：浅克隆下**报红**（实测：`git clone --depth 1` 的副本里跑 → `only 1 revision(s) reachable`），完整克隆下通过 |
 
-| 项 | 值 |
-|---|---|
-| tag 对象 | `8ddf3ec7c09780f6aa1e99b5cbd3ae4f7838d7e4`（`git cat-file -t` → `tag`，annotated） |
-| tag 目标提交 | `5958987fa1263e90739707eaffede4ea5958c7ab` |
-| branch push 的运行 | [39040282695](https://github.com/yuluo554/10-17-doc-dedupe/actions/runs/39040282695) `event=push branch=main` **success**，4/4 作业 |
-| tag push 的运行 | [39040585083](https://github.com/yuluo554/10-17-doc-dedupe/actions/runs/39040585083) `event=push branch=v0.1.0` **success**，4/4 作业 |
+**这就是本轮把 tag 移过来的原因**：`004ad27` 与 `8919034` 让 CI 里的历史脱敏门真的扫全历史。
+没有它们，tag 上那条 CI 的历史门是**浅克隆空验**的，而 README 声称"跟踪文件与 git 历史里
+没有本机路径、真实文档名、私人邮箱"——门在，却只覆盖它声称的一小部分。
+测试数因此 481 → 483（`README_ARTIFACTS` 两条）→ **484**（守卫一条）。
 
-两条运行打在**同一个提交**上，这正是 DoD 要的"tag push 与 branch push 各一条"：
-`gh run list --commit 5958987` 只返回两条，`gh run view` 显示 `headSha` 相同。
-第二次（tag push）的四个作业同样是 481 点 / 0 非点。
+**一处数字更正（本版实测）**：1.5 与旧 §2.5 写的"本机全量扫描过 870 / 1100 个 blob"
+**现在复算不出来**。按门自己的口径（`rev-list --all` 的全部 ref、`ls-tree -r` 去重）本机
+是 **19 个提交 / 258 个 blob**；对象库里的 blob 也正好 258 个，没有不可达残留。
+旧数字应是历史重写之后、`gc` 剪除之前数到的（那时被抹掉的旧 blob 还在对象库里）。
+数字变小不改变那条结论：**门的覆盖面取决于可达提交数**，浅克隆下它必然只剩 1 个提交。
 
-### 2.2 产物与 digest
+## 二、产物、安装面与可复验的口径
 
-产物由 tag 树构建（构建前 `git status` 干净且 `HEAD == v0.1.0^{commit}`），
+> 这一栏只放**打 tag 之前就能算出**的事实，所以它与 tag 树里的本文件逐字节相同。
+> 只有两样东西写不进来（tag 对象自己的 sha、它自己那次 tag push 的 CI），理由与证明见 §三；
+> 它们由 `tools/check_release.py` 的 `TAG_ANNOTATED` / `CI_GREEN` / `REMOTE_TAG` 三门机械复核。
+
+### 2.1 产物与 digest
+
+产物由 tag 树构建（构建前 `git status` 干净）。与 tag 树唯一的差别是本节这几行 digest 本身，
+而 `plan/` 不在任何产物里（开头那段已说明），所以 digest 行不影响产物字节。
 本地副本在 `release/`（`.gitignore` 里，不入仓），同一份挂在 Release 上：
 
 ```yaml
-sha256: 092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
-sha256: 80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
+sha256: 99eb7d0ca6f3513a3db2170d46576ff2992a3bd8f74c2162cd10f2a567422db7  doc_dedupe-0.1.0.tar.gz
+sha256: 8e1bc46d988a57958da22a08ee5a2d959b75fda6c8b1d3ef6d60e5dae9a6b86c  doc_dedupe-0.1.0-py3-none-any.whl
 ```
 
 复验（把上面两行原样喂给 `sha256sum -c` 即可；Windows 用 `Get-FileHash`）：
 
 ```bash
 sha256sum -c <<'SUMS'
-092aaa5971ec4aff9568251ee10b03d2a4f7eb061b5d7a9333776591e6b833c6  doc_dedupe-0.1.0.tar.gz
-80ce98d3067388b891e444f1bd13d3204c8c8b7693737fe0247ee9b3b13e6270  doc_dedupe-0.1.0-py3-none-any.whl
+99eb7d0ca6f3513a3db2170d46576ff2992a3bd8f74c2162cd10f2a567422db7  doc_dedupe-0.1.0.tar.gz
+8e1bc46d988a57958da22a08ee5a2d959b75fda6c8b1d3ef6d60e5dae9a6b86c  doc_dedupe-0.1.0-py3-none-any.whl
 SUMS
 ```
 
 Release：<https://github.com/yuluo554/10-17-doc-dedupe/releases/tag/v0.1.0>，
-两个附件（`doc_dedupe-0.1.0-py3-none-any.whl` 106,227 B、`doc_dedupe-0.1.0.tar.gz` 191,615 B），
+两个附件（`doc_dedupe-0.1.0-py3-none-any.whl` 106,534 B、`doc_dedupe-0.1.0.tar.gz` 192,973 B），
 不是 draft、不是 prerelease。`tools/check_release.py` 会用 `gh release download` 把附件真的拉下来
-再算一次 sha256，与上表比对——"挂在 Release 上"不是靠肉眼看的。
+再算一次 sha256 与上表比对——"挂在 Release 上"不是靠肉眼看的。
 
-### 2.3 安装面实测（M5 收尾时这一项还是"未实跑"）
+相对 M6 首版，两个产物的字节**都变了**：本版的 tag 树含 §1.9 那 6 个提交，其中 README 与
+`tests/` 的改动都会进 sdist，所以旧附件不是本 tag 树的产物，必须重打。
 
-| 装法 | 结果 |
+### 2.2 安装面实测（全部从**本版 wheel**起，全新 venv）
+
+| 装法 | 结果（退出码） |
 |---|---|
-| 全新 venv 装 **wheel** | 装得上；`doc-dedupe --version` → `0.1.0`；`selftest` → `selftest OK` |
-| 从 wheel 跑全流程（用仓库语料作输入） | `scan` 0 / `report` 1（27 个簇，exact+near+template 三档齐全）/ `reports` 0 |
-| 干净 clone + `pip install -e ".[dev]"` | 见 §1.4 的退出码表 |
+| 全新 venv `pip install doc_dedupe-0.1.0-py3-none-any.whl` | 0 |
+| `doc-dedupe --version` | 0 → `doc-dedupe 0.1.0` |
+| `doc-dedupe selftest` | 0 → `selftest OK (doc-dedupe 0.1.0)` |
+| `doc-dedupe scan data/samples --db <tmp>/i.db` | 0 |
+| `doc-dedupe report --db <tmp>/i.db` | **1**（检出 27 簇 / 84 份文件；既定语义，不是故障） |
+| `doc-dedupe reports --db <tmp>/i.db --out <tmp>/out/` | 0 |
+| `doc-dedupe serve --db <tmp>/i.db --port 8799`（未装 `web` extra） | **3**，并打印 `pip install -e ".[web]"` |
+| 干净 clone + `pip install -e ".[dev]"`（源码态） | 见 §1.4 的退出码表 |
 | 干净 clone + `pip install -e ".[web]"` 后 `serve` | `GET /` 200、`GET /api/clusters` 200（27 个簇） |
 
-### 2.4 发布门禁的最终输出
+wheel 里带 Web 静态页（`docdedupe/web/static/index.html`，23 个条目）——这是"装完能 serve"的前提。
+`plan/`、`tools/`、`.github/` 都不在 wheel 与 sdist 里（sdist 55 个条目）。
 
-`python tools/check_release.py .`（联网，含 gh 校验）：
+### 2.3 门禁与远端状态怎么复核
 
-```
-== release gate: 10-17-doc-dedupe (tag=v0.1.0) ==
-[PASS] TAG_ANNOTATED        tag v0.1.0 is annotated
-[WARN] TAG_COMMIT           no commit recorded in the facts block; the tag target is 5958987fa126
-[PASS] TAGGER_EMAIL         tagger email is noreply
-[PASS] DOC_IN_TAG           plan/RELEASE-M6.md is inside the v0.1.0 tree
-[WARN] DOC_UNCHANGED        the release document changed after the tag; the post-tag additions
-                            must be a separate, clearly marked section
-[PASS] ARTIFACT_DIGEST      2 artifact digest(s) recorded after the tag
-[PASS] ARTIFACT_LOCAL       release/doc_dedupe-0.1.0.tar.gz matches the recorded sha256
-[PASS] ARTIFACT_LOCAL       release/doc_dedupe-0.1.0-py3-none-any.whl matches the recorded sha256
-[PASS] ARTIFACT_REMOTE      downloaded doc_dedupe-0.1.0.tar.gz from yuluo554/10-17-doc-dedupe; sha256 matches
-[PASS] ARTIFACT_REMOTE      downloaded doc_dedupe-0.1.0-py3-none-any.whl from yuluo554/10-17-doc-dedupe; sha256 matches
-[PASS] RELEASE_ASSETS       2 asset(s): doc_dedupe-0.1.0-py3-none-any.whl, doc_dedupe-0.1.0.tar.gz
-[PASS] CI_GREEN             2 successful run(s) on 5958987fa126, covering main, v0.1.0
-[PASS] PLAN00               all 3 M6 status row(s) are flipped
-[PASS] README_ARTIFACTS     every artifact the README names is shipped: doc_dedupe-0.1.0-py3-none-any.whl, doc_dedupe-0.1.0.tar.gz
-[PASS] README_LICENSE       LICENSE exists and the README names it
-[PASS] README_EXIT_CODES    report/quarantine/undo/reports each document exit code 1 on their command line
-[PASS] LEAKS                no machine-specific path or QQ mailbox in 117 scanned file(s)
-[PASS] IDENTITIES           1 unique commit identity/identities, all noreply
-[PASS] CLEAN_TREE           the working tree is clean
-[PASS] REMOTE               remote configured: origin
-[PASS] REMOTE_TAG           the remote tag matches the local one (5958987fa126)
+本文件**不贴** `check_release.py` 的最终输出，这不是省略，是它**写不进来**：门禁的 `CI_GREEN`
+要 tag push 触发的那次 CI，而那次 CI 只有在 tag 推出去之后才存在；把结论抄进 tag 树里的本文件
+就是自指（§三）。所以复核方式是跑门禁本身：
 
-0 FAIL / 2 WARN / 19 PASS
+```bash
+python tools/check_release.py      # 期望 0 FAIL / 2 WARN / 19 PASS，exit 0
 ```
 
-这一段是**照抄实跑输出**（`README_ARTIFACTS` 那条是 §2.5 新增的门）。
-两条 WARN 都是设计如此，不是待办：`TAG_COMMIT` 因为没有把提交哈希写进 tag 树里的
-facts 块（写进去会改变那棵树），`DOC_UNCHANGED` 因为本节就是 tag 后的追加。
-"0 FAIL"是硬要求，"0 WARN"不是。
+**为什么剩下 2 条 WARN 都不是待办**：
 
-### 2.5 tag 之后改了什么（按 §二 的规矩分栏记录）
-
-tag 树里的仓库状态与本文件 §一 所写一致；下列改动只出现在 tag 之后，不影响 tag 内容：
-
-| 改动 | 为什么 |
-|---|---|
-| README 的复验片段改用**真实产物名**（`doc_dedupe-…` 下划线，含两个真实 sha256） | README 原先写的是连字符 `doc-dedupe-0.1.0.tar.gz`——setuptools 规范化后实际是下划线。DoD 要求"README 的附件名与实物一致"，这是唯一一处不一致 |
-| `check_release.py` 新增 `README_ARTIFACTS` 门 | 让上面那类漂移不可能再悄悄发生：README 里出现的任何 `doc[_-]dedupe-*.tar.gz/whl` 必须真的在 Release 里；加了两条测试（提到未发布的名字必须红、提到真实名字必须绿） |
-| 测试数 481 → **483** | 就是上面那两条测试。tag 提交（`5958987`）仍是 481 项；这两个数字各自都说的是自己那次提交 |
-| `plan/HANDOFF-M6.md` §五的 10 项与 `plan/05` M6 节的 9 项 DoD 复选框打勾 | 这两处都写着"逐项打勾"；打勾要等对应事实都出来（tag、Release、CI 对账、0 FAIL），所以只能在 tag 之后做，tag 树里仍是空框 |
-| `ci.yml` 的 `actions/checkout` 加 `fetch-depth: 0`，并加一条非空跑守卫 | 补一个**覆盖面**漏洞：默认浅克隆只取 1 个提交，而历史脱敏门是"遍历所有 ref 可达的 blob"。本机全量扫描过 1100 个 blob，CI 里却只扫到 tip 的 172 个——门还在，覆盖悄悄缩水了。新守卫 `test_the_history_scan_covers_more_than_the_tip_commit` 在浅克隆下**报红**（实测：`git clone --depth 1` 的副本里跑 → `only 1 revision(s) reachable`），在完整克隆下通过 |
-| 测试数 483 → **484** | 就是上面那条守卫 |
-
-tag 之后 `main` 的提交因此与 tag 指向的提交不同，这是 §二 存在的理由——
-`DOC_UNCHANGED` 报 WARN 正是它在如实说明这件事。
+- **`TAG_COMMIT`**：要 facts 块记一个提交哈希、且必须等于 tag 的目标提交；本文件在 tag 树里，
+  记自己的哈希就是自指，数学上无解（§三）。它正是 `CI_GREEN` 存在的理由：tag 是不是打在
+  CI 全绿的提交上，由机器在那个提交上核，而不是由留档自述。
+- **`DOC_UNCHANGED`**：本文件与 tag 树里的它**其实逐字节相同**（tag 与收尾提交重合、
+  工作树干净），门却仍报 WARN——因为门取 tag 侧内容时经过了 `run()` 的 `.strip()`
+  （见 `tools/check_release.py` 的 `run()` / `git()`），**文件末尾那个换行被削掉了**，
+  而工作树侧是 `read_text()` 的原文，没有削。实测：`tagged == on_disk.strip()` 为真、
+  `tagged == on_disk` 为假，差的正是那一个换行。**这条门的 PASS 分支对任何以换行结尾的
+  文件都不可达**，它现在只能报 WARN——也就报不出"留档真的被改过"这件事了。
+  修法只有一行：取 tag 侧内容时不要 `.strip()`（或两侧对称地保留换行），再补一条
+  "相同必须 PASS / 改过必须 WARN" 的两侧测试。
+  **本轮没有改门**（纪律禁止把 `check_release.py` 的 WARN 直接改成 PASS），也没有为了
+  迁就它去掉文件末尾的换行——这两件事都该由人来定，不该顺手做。
 
 ## 三、诚实口径
 
@@ -290,7 +295,26 @@ tag 之后 `main` 的提交因此与 tag 指向的提交不同，这是 §二 �
   与 `codeload.github.com` 始终可用。push 最终走 HTTPS 成功；若日后复验失败，
   先怀疑网络而不是仓库。为此 `check_release.py` 的远端 tag 校验在 `ls-remote`
   失败时回退到 `gh api`。
-- **wheel 安装面**：见第二节的安装复验（M5 收尾时这一项还是"未实跑"）。
+- **两条 WARN 的真正原因（本轮实测；两条都不是"留档不老实"）**：
+  - `DOC_UNCHANGED`：本文件与 tag 树里的自己**逐字节相同**，WARN 出在门自己身上——
+    `run()` 对 git 输出做了 `.strip()`，tag 侧被削掉末尾换行、工作树侧没有，两边永远差
+    一个换行。细节与修法写在 §2.3；**这条门的 PASS 分支不可达**，它只能当"提醒"看。
+  - `TAG_COMMIT`：要 PASS 就得在 tag 树里的本文件写下 tag 自己的提交哈希——一个提交的
+    哈希由包含该哈希的树算出，是自指，数学上无解。把哈希写进 facts 块、留在 tag 之后是
+    另一条路，代价是 tag 之外多一个提交，也就回到了"tag 落后 HEAD"——**本轮要修的正是它**。
+  - 所以在"不改门 + 不制造后置提交"的前提下，本版的最优成绩是 **0 FAIL / 2 WARN**。
+    本版选择让 tag 与收尾提交重合：留档在 tag 树里就是终态，tag 之后没有任何改动。
+- **license 元数据仍是弃用写法，这是刻意的、有实测依据的**：
+  `project.license = { text = "MIT" }` 与 `License :: OSI Approved :: MIT License`
+  在 setuptools 84 上各报一条 `SetuptoolsDeprecationWarning`（原文含
+  **"By 2027-Feb-18, you need to update your project and remove deprecated calls or your
+  builds will no longer be supported."**）。**唯一的改法**是换成 SPDX 字符串
+  `license = "MIT"`（+ `license-files`），而那条路要求 `setuptools>=77`：
+  实测 `setuptools>=75.4.0` 已要求 Python >=3.9，能跑在 3.8 上最新的 `75.3.4` **拒收**
+  该写法（`ValueError: invalid pyproject.toml config: project.license`）。
+  也就是说"SPDX license"与"`requires-python >=3.8`"**不可兼得**：本版保留 3.8
+  （CI 四作业含 3.8，本机 `.venv38` 也跑过全量 484 项），把这条挂到 2027-02-18 的期限上。
+- **wheel 安装面**：见 §2.2（全部从本版 wheel 起，全新 venv 实测）。
 - **`plan/00` 的三行台账**在本文件同级提交里翻 ✅，因此 tag 树里台账也已是完成态。
 - **历史重写了三次**（1.6）。这不改变"当前树"的任何字节（除被抹掉的那两处字面量），
   但意味着 tag 之前的提交哈希与仓库最初几分钟的不同；发布物只在 tag 上。

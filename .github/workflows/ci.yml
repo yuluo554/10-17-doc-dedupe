@@ -5,6 +5,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: this workflow only reads the repository. It never writes to the
+# repo, never publishes, and never touches a Release.
+permissions:
+  contents: read
+
+# One run per ref. `cancel-in-progress` stays false on purpose: the release gate
+# treats a cancelled run on the tag target commit as "not verified", so letting a
+# queued run finish is worth more here than saving a runner minute.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
@@ -23,7 +35,7 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history on purpose: tests/test_repo_invariants.py walks every
           # blob reachable from every ref, and the desensitization promise is
@@ -32,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
